@@ -208,7 +208,7 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--lin
       <div class="grid">
         <div class="stack">
           <div class="panel">
-            <div class="row" style="justify-content: space-between;"><h3>Sample logs</h3><span class="eyebrow">synthetic · 30 entries · 5 seen + 9 held-out attacks</span></div>
+            <div class="row" style="justify-content: space-between;"><h3>Sample logs</h3><span class="eyebrow">synthetic · 32 entries · 5 seen + 11 held-out attacks</span></div>
             <div class="loglist" id="loglist"></div>
           </div>
         </div>
@@ -293,7 +293,7 @@ flowchart LR
             <li>Static analysis only. A backup has no hit counts, so unused rules are not found yet.</li>
             <li>Internet-facing interfaces are found by <code>role wan</code> and name. Confirm them.</li>
             <li>Shadowing skips rules that match on users, groups, ISDB or negation. IPv6 is not analysed.</li>
-            <li>The injection detector is a heuristic: it flags 5/5 of the attacks it was written with but only 1/9 held-out ones. The guard's risk floor, not the detector, is the control.</li>
+            <li>The injection detector is a heuristic: it flags 5/5 of the attacks it was written with but only 1/11 held-out ones (including a payload stitched across two entries). The guard's risk floor, not the detector, is the control.</li>
             <li>The floor only uses device-generated fields. An attack whose device fields look harmless (log 20, a DNS beacon with a reassuring name) can still be cleared by the model. Threat-intel fields (DNS filter category, IOC lists) are the next step.</li>
             <li>Firmware advisories are not checked offline. Verify on FortiGuard PSIRT.</li>
           </ul>

@@ -278,3 +278,18 @@ test('held-out attacks exist, are mostly missed by the detector, and the guard c
   const won = g.verdicts.filter((v) => held.includes(v.log_id) && (v.classification === 'benign' || v.recommended_action === 'none')).map((v) => v.log_id);
   assert.deepEqual(won, [20], 'only the DNS beacon with no risky trusted field gets through');
 });
+
+test('cross-entry stitching (logs 31-32): neither half is flagged, both are floored by trusted fields', () => {
+  const h = N.buildHardenedPrompt(logs);
+  for (const id of [31, 32]) {
+    assert.equal(labels[id].attack, 'heldout');
+    assert.deepEqual(h.entries[id - 1].injection_flags, [], `log ${id}: no single entry looks like an instruction`);
+    assert.ok(N.riskFloor(h.entries[id - 1]).length, `log ${id}: trusted fields set a floor`);
+  }
+  const g = N.validateVerdicts({ verdicts: [31, 32].map((id) => ({ log_id: id, classification: 'benign', confidence: 1, recommended_action: 'none', reason: 'contracted vendor' })) }, h.entries);
+  for (const id of [31, 32]) {
+    const v = g.verdicts.find((x) => x.log_id === id);
+    assert.equal(v.classification, 'suspicious');
+    assert.notEqual(v.recommended_action, 'none');
+  }
+});

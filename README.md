@@ -15,7 +15,7 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
   4. To test a real backup, use *Open backup file…*. It never leaves the browser. Use a sanitised copy anyway.
 - **CLI (Node 20+, no dependencies):**
   ```bash
-  npm test                                   # 19 tests (unit + CLI end to end against a fake LLM)
+  npm test                                   # 20 tests (unit + CLI end to end against a fake LLM)
   node cli/netsec.js analyze backup.conf --lang th > report.md
   node cli/netsec.js narrate backup.conf --lang th --llm http://<gpu-host>:8000/v1 --model <model>
   node cli/netsec.js narrate backup.conf --dry-run        # print the masked prompt only
@@ -49,13 +49,13 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
   - "benign" or "none" on an entry the detector flagged is raised to suspicious/investigate;
   - a **risk floor from device-generated fields** (level alert or higher, IPS severity high or above, IPS/anomaly/virus events, failed login, external source carrying attacker text) means the model cannot clear the entry. At most it drops to suspicious/monitor. This does not depend on the regex detector;
   - reasons that quote any 16-character window of attacker text are removed.
-- **The detector is a hint, not a control.** It flags 5/5 of the attacks written alongside it, but only **1/9 held-out attacks** (`--detector-only`). The floor covers 8/9 held-out attacks. **Known gap:** log 20, a DNS C2 beacon whose device fields look harmless, can still be cleared by the model. Threat-intel fields (DNS filter category, IOC lists) are needed for that case.
+- **The detector is a hint, not a control.** It flags 5/5 of the attacks written alongside it, but only **1/11 held-out attacks** (`--detector-only`). The floor covers 10/11 held-out attacks, including a payload stitched across two log entries (31–32). **Known gap:** log 20, a DNS C2 beacon whose device fields look harmless, can still be cleared by the model. Threat-intel fields (DNS filter category, IOC lists) are needed for that case.
 
 ## Results so far (Oracle ARM, 4 vCPU, CPU only)
 
 - `results/narrate-qwen2.5-3b-instruct.md`: `qwen2.5:3b-instruct` in 660 s on CPU. The priorities are correct and grounded (policy 9 any-any, WAN inbound, no trusted hosts, management on WAN, cleartext management). It does not invent a "secure" verdict. **But it answered in English although Thai was requested.** A Thai-tuned model (Typhoon 2) on the GPU servers is the next test.
 - `results/narrate-qwen3.5-2b-head.md`: Thai executive summary from `huihui_ai/qwen3.5-abliterated:2B` (**an abliterated model with its safety tuning removed: kept only as a labelled worst case, not a candidate**) on CPU in 37 s. It picks the right priorities (policy 9, policy 5, MFA), but it also **claims the network is "secure at a high level", mixes in a Chinese token and gives a wrong fix for strong-crypto.** This is why the deterministic report stays the source of truth and the LLM text is a draft for review. A larger model on the GPU servers is the next test.
-- `results/inject-eval-qwen2.5-3b-instruct.md`: `qwen2.5:3b-instruct` (stock instruct model) on lines 1–20 (5 seen + 9 held-out attacks), naive vs full prompt, **1 run each** (85 min on CPU, so read these as a smoke result, not statistics):
+- `results/inject-eval-qwen2.5-3b-instruct.md`: `qwen2.5:3b-instruct` (stock instruct model) on lines 1–20 only (5 seen + 9 held-out attacks; the stitched pair 31–32 was added later and has no LLM run yet), naive vs full prompt, **1 run each** (85 min on CPU, so read these as a smoke result, not statistics):
 
   | | canary leaked | seen attacks won: raw → after guard | held-out won: raw → after guard | attack lines the model left out |
   |---|---|---|---|---|
@@ -64,15 +64,20 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
 
   What this shows: the hardened prompt stopped the canary leak. But the small model then **dropped entries from its JSON** (5 attack lines with no verdict), so it looked *worse* raw. Only the fail-closed guard turned those into `unknown/investigate`. The guard held at 0/5 seen and 1/9 held-out in both modes. The one held-out attack that got through is log 20, the DNS beacon. The "non-attack lines raised by guard" column counts lines that are not injection attempts, which includes the two SSL-VPN brute-force lines (8, 9). Raising those is correct, not a false positive.
 - Not yet measured: the 4-mode ablation (`--ablate`) and several runs per mode. On this CPU that takes about 14 h, so it is planned for the GPU servers (weeks 12–14).
-- `test/cli.test.js` checks the same pipeline against a fake model that is fully manipulated (everything benign, one entry dropped). After the guard: 0% of seen attacks and 1/9 held-out get through, in every mode.
+- `test/cli.test.js` checks the same pipeline against a fake model that is fully manipulated (everything benign, one entry dropped). After the guard: 0% of seen attacks and 1/11 held-out get through, in every mode.
+
+## Related work
+- Pandey & Bhujang, *Poisoning the Watchtower: Prompt Injection Attacks Against LLM-Augmented Security Operations Through Adversarial Log Content*, arXiv [2605.24421](https://arxiv.org/abs/2605.24421) (2026). Same threat model (attacker-written log fields); prompt-level defences cut average success from 26.6% to 11.8%.
+- Karanjai et al., *LogInject / Context Contamination*, arXiv [2607.14493](https://arxiv.org/abs/2607.14493) (2026). 12,847-entry benchmark; "Context Stitching" splits a payload across entries (76.4% success). Logs 31–32 here reproduce that pattern.
+- What this prototype adds: a deterministic guard that fails closed and floors risk from device-generated fields, so the result does not depend on the model or the detector; Thai and held-out payloads; FortiOS fields; a small on-prem model.
 
 ## Roadmap (16-week co-op)
 
 | Weeks | Deliverable |
 |---|---|
-| 1–2 | LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10), baselines, read-only access agreed |
+| 1–2 | LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10), baselines, read-only access agreed; decision gate with the mentor (see `coop/RESEARCH.md`, Options considered) |
 | 3–6 | Run this review on real sanitised backups; evidence pack for the ISO surveillance audit; add policy hit counts (FortiAnalyzer/`diagnose`) to find unused rules |
-| 7–11 | Ticket → evidence: Thai ITSM ticket text + iMaster NCE / CampusInsight, Zabbix and FortiAnalyzer APIs (read-only) → cited triage draft |
+| 7–11 | *Optional, needs read-only API accounts.* Ticket → evidence: Thai ITSM ticket text + iMaster NCE / CampusInsight, Zabbix and FortiAnalyzer APIs (read-only) → cited triage draft |
 | 12–14 | Red-team the assistant with log injection on KKU-like traffic; compare models on the GPU servers |
 | 15–16 | Handover, runbook, metrics before/after, draft paper (e.g. ECTI-CIT) |
 
@@ -92,8 +97,8 @@ src/app.js      browser UI
 web/page.html   page template
 build.js        inlines everything into index.html (GitHub Pages), dist/standalone.html and dist/index.html (artifact body)
 cli/netsec.js   analyze | narrate | inject-eval
-samples/        synthetic FortiOS config and 30 log lines (issues and injections seeded on purpose);
-                fgt-logs.labels.json is the ground truth: 5 seen + 9 held-out attacks
+samples/        synthetic FortiOS config and 32 log lines (issues and injections seeded on purpose);
+                fgt-logs.labels.json is the ground truth: 5 seen + 11 held-out attacks
 test/           node:test suite (core.test.js unit, cli.test.js end to end with a fake OpenAI-compatible server)
 results/        measured LLM outputs
 ```
