@@ -1,12 +1,14 @@
 # NetSec Assistant (prototype v0.2)
 
+**Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
+
 An LLM layer for the KKU Office of Digital Technology network and cyber team. It runs on-prem, only reads its inputs, and is built to fit the ISMS. This prototype is for the mentor to try before the co-op starts.
 
 **Idea in one line:** deterministic code finds the problems and cites config lines. A local LLM explains them in Thai and English and helps triage logs. Every LLM output goes through a guard so attacker text in the logs can't steer it.
 
 ## Try it (2 minutes)
 
-- **In the browser:** open `dist/standalone.html` (works offline), or the published demo (private until shared: https://claude.ai/artifact/VwqHq9GxmQqwr3URMQLkwu). It runs entirely in the tab. Nothing is uploaded.
+- **In the browser:** open the [live demo](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/), or `index.html` from a clone (works offline). It runs entirely in the tab. Nothing is uploaded.
   1. **Config review:** the sample loads automatically. Click the severity tiles to filter. Open a finding to see the evidence lines and suggested CLI. Switch between ไทย and English.
   2. **Report:** the ISO/IEC 27001:2022 evidence report. *LLM input (masked)* shows exactly what an LLM would receive.
   3. **Log-injection lab:** select log 2 (or 11, an attack the detector misses), compare the *Naive* and *Hardened* prompts, then click *Run guard*.
@@ -88,7 +90,7 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
 src/core.js     parser, checks, report, masking, injection defences (shared by browser + CLI)
 src/app.js      browser UI
 web/page.html   page template
-build.js        inlines everything into dist/index.html (artifact) and dist/standalone.html
+build.js        inlines everything into index.html (GitHub Pages), dist/standalone.html and dist/index.html (artifact body)
 cli/netsec.js   analyze | narrate | inject-eval
 samples/        synthetic FortiOS config and 30 log lines (issues and injections seeded on purpose);
                 fgt-logs.labels.json is the ground truth: 5 seen + 9 held-out attacks
