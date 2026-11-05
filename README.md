@@ -6,7 +6,7 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
 
 ## Try it (2 minutes)
 
-- **In the browser:** open `dist/standalone.html` (works offline), or the published demo link. It runs entirely in the tab. Nothing is uploaded.
+- **In the browser:** open `dist/standalone.html` (works offline), or the published demo (private until shared: https://claude.ai/artifact/VwqHq9GxmQqwr3URMQLkwu). It runs entirely in the tab. Nothing is uploaded.
   1. **Config review:** the sample loads automatically. Click the severity tiles to filter. Open a finding to see the evidence lines and suggested CLI. Switch between ไทย and English.
   2. **Report:** the ISO/IEC 27001:2022 evidence report. *LLM input (masked)* shows exactly what an LLM would receive.
   3. **Log-injection lab:** select log 2 (or 11, an attack the detector misses), compare the *Naive* and *Hardened* prompts, then click *Run guard*.
