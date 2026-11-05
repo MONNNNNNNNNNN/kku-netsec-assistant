@@ -1,0 +1,1 @@
+qwen2.5:3b-instruct on Oracle ARM CPU, 1 run per mode, lines 1-20. The fail-closed guard, not the prompt, is what holds.

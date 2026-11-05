@@ -1,0 +1,322 @@
+<title>NetSec Assistant</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Prototype: FortiGate configuration review with ISO/IEC 27001:2022 evidence, and a log-injection lab for LLM-assisted SOC triage.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: operations console. Sticky header + tabs; on wide screens input/summary sit beside the findings list; one column on phones. */
+:root {
+  --bg: #f2f5f6; --surface: #ffffff; --sunk: #e9eff1; --ink: #14212a; --muted: #566a74; --line: #d3dde1;
+  --accent: #0d6c7b; --accent-soft: #d8ecef; --on-accent: #ffffff;
+  --crit: #b3261e; --high: #c4501a; --med: #9a7500; --low: #2f7299; --info: #687884; --ok: #2e7d4f;
+  --mark: #fde7c4;
+  --f-display: "Bai Jamjuree", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1317; --surface: #141c21; --sunk: #0f171b; --ink: #dbe4e9; --muted: #8c9ca5; --line: #25313a;
+  --accent: #47b4c3; --accent-soft: #15333a; --on-accent: #06181c;
+  --crit: #ff6b61; --high: #ff9459; --med: #e2bf4b; --low: #71b4da; --info: #9aa8b2; --ok: #5cc28a;
+  --mark: #4a3410; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0d1317; --surface: #141c21; --sunk: #0f171b; --ink: #dbe4e9; --muted: #8c9ca5; --line: #25313a;
+  --accent: #47b4c3; --accent-soft: #15333a; --on-accent: #06181c;
+  --crit: #ff6b61; --high: #ff9459; --med: #e2bf4b; --low: #71b4da; --info: #9aa8b2; --ok: #5cc28a;
+  --mark: #4a3410; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 10px 0; }
+.brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.brand h1 { font: 700 20px/1.2 var(--f-display); margin: 0; letter-spacing: .01em; }
+.brand .sub { color: var(--muted); font-size: 13px; }
+.pill-local { margin-left: auto; font: 500 12px/1 var(--f-mono); color: var(--ok); border: 1px solid currentColor; border-radius: 999px; padding: 5px 10px; white-space: nowrap; }
+nav.tabs { flex-basis: 100%; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+nav.tabs::-webkit-scrollbar { display: none; }
+nav.tabs a { font: 600 14px/1 var(--f-display); color: var(--muted); text-decoration: none; padding: 12px 12px 11px; border-bottom: 3px solid transparent; white-space: nowrap; }
+nav.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+nav.tabs a:focus-visible, button:focus-visible, textarea:focus-visible, summary:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { padding-block: 20px 48px; }
+h2 { font: 600 18px/1.3 var(--f-display); margin: 0; text-wrap: balance; }
+h3 { font: 600 15px/1.35 var(--f-display); margin: 0; text-wrap: balance; }
+.eyebrow { font: 500 11px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+p { margin: 0; }
+.muted { color: var(--muted); }
+code, pre, .mono { font-family: var(--f-mono); font-size: 13px; }
+.grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, .btn { font: 600 13px/1 var(--f-body); border-radius: var(--r); padding: 9px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+button:hover, .btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.ghost { border-color: transparent; background: transparent; color: var(--accent); padding-inline: 6px; }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+textarea { width: 100%; min-height: 220px; resize: vertical; font: 12.5px/1.5 var(--f-mono); color: var(--ink); background: var(--sunk); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; }
+.note { font-size: 13px; color: var(--muted); }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 13.5px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--f-mono); font-size: 13px; overflow-wrap: anywhere; }
+.sev-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.sev-tile { border: 1px solid var(--line); border-radius: var(--r); padding: 8px 6px 7px; text-align: center; background: var(--surface); cursor: pointer; display: block; color: var(--ink); }
+.sev-tile b { display: block; font: 700 22px/1.1 var(--f-display); font-variant-numeric: tabular-nums; color: var(--c); }
+.sev-tile span { font: 500 10.5px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.sev-tile[aria-pressed="true"] { border-color: var(--c); box-shadow: inset 0 -3px 0 var(--c); }
+.sev-tile.zero b { color: var(--muted); opacity: .5; }
+.c-critical { --c: var(--crit); } .c-high { --c: var(--high); } .c-medium { --c: var(--med); } .c-low { --c: var(--low); } .c-info { --c: var(--info); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 11.5px/1 var(--f-mono); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.chip.iso { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.chip.flag { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 45%, var(--line)); }
+.chip.sev { color: var(--c); border-color: color-mix(in srgb, var(--c) 45%, var(--line)); text-transform: uppercase; letter-spacing: .05em; }
+.findings { display: flex; flex-direction: column; gap: 8px; }
+details.f { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: var(--r); min-width: 0; }
+details.f > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; }
+details.f > summary::-webkit-details-marker { display: none; }
+details.f > summary .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; grid-column: 1 / -1; }
+details.f .count { font: 600 12px/1 var(--f-mono); color: var(--muted); white-space: nowrap; padding-top: 3px; }
+details.f[open] > summary { border-bottom: 1px solid var(--line); }
+.f-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 11px/1.2 var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); white-space: nowrap; }
+.scroll { overflow-x: auto; min-width: 0; }
+pre.code { margin: 0; background: var(--sunk); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; overflow: auto; white-space: pre; line-height: 1.5; max-height: 460px; }
+pre.code.wrap-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.codebox { position: relative; min-width: 0; }
+.codebox .copy { position: absolute; top: 6px; right: 6px; padding: 5px 8px; font-size: 12px; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 7px 10px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.md h1 { font: 700 18px/1.3 var(--f-display); margin: 0 0 8px; }
+.md h2 { margin: 16px 0 6px; font-size: 16px; }
+.md h3 { margin: 14px 0 4px; font-size: 14px; }
+.md p, .md ul { margin: 6px 0; }
+.md ul { padding-left: 20px; }
+.md pre { margin: 6px 0; }
+.md table { margin: 6px 0; width: auto; min-width: 50%; }
+.loglist { display: flex; flex-direction: column; gap: 6px; }
+.logitem { text-align: left; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 10px; padding: 9px 10px; font-weight: 400; line-height: 1.4; width: 100%; }
+.logitem .id { font: 600 13px/1.4 var(--f-mono); color: var(--muted); grid-row: span 2; }
+.logitem .t { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.logitem .chips { grid-column: 2; }
+.logitem[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.fieldtbl td:first-child { font-family: var(--f-mono); white-space: nowrap; }
+.fieldtbl td:last-child { font-family: var(--f-mono); overflow-wrap: anywhere; }
+tr.untrusted td { background: color-mix(in srgb, var(--crit) 7%, transparent); }
+.tag { font: 600 10px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; padding: 3px 5px; border-radius: 3px; }
+.tag.u { color: var(--crit); border: 1px solid currentColor; }
+.tag.t { color: var(--muted); border: 1px solid var(--line); }
+.verdict-ok { color: var(--ok); } .verdict-bad { color: var(--crit); }
+.how { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.how ul, .how ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.phase { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 4px 12px; font-size: 14px; }
+.phase dt { font: 500 12px/1.6 var(--f-mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.phase dd { margin: 0; }
+.toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); background: var(--ink); color: var(--bg); padding: 8px 12px; border-radius: var(--r); font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-block: 16px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>NetSec Assistant</h1>
+      <span class="sub">Prototype for KKU Office of Digital Technology · v<span id="ver"></span></span>
+    </div>
+    <span class="pill-local" title="All analysis runs in this browser tab. This page cannot make network requests.">● local only, no upload</span>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#review" data-view="review">Config review</a>
+      <a href="#lab" data-view="lab">Log-injection lab</a>
+      <a href="#how" data-view="how">How it works</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- ============================ CONFIG REVIEW -->
+  <section id="view-review" data-view-panel="review">
+    <div class="grid">
+      <div class="stack">
+        <div class="panel">
+          <div class="row" style="justify-content: space-between;">
+            <h2>FortiGate config</h2>
+            <span class="eyebrow" id="src-label">sample</span>
+          </div>
+          <textarea id="cfg" spellcheck="false" wrap="off" aria-label="FortiGate configuration backup"></textarea>
+          <div class="row">
+            <button class="primary" id="btn-analyze">Analyze</button>
+            <label class="btn" for="file">Open backup file…</label>
+            <input type="file" id="file" accept=".conf,.txt,.cfg">
+            <button id="btn-sample">Load sample</button>
+          </div>
+          <p class="note">Paste or open a backup (System › Configuration › Backup). The file is read by this tab only. The sample is synthetic, with issues planted on purpose.</p>
+        </div>
+        <div class="panel" id="summary"></div>
+      </div>
+
+      <div class="stack">
+        <div class="row" style="justify-content: space-between;">
+          <h2 id="findings-title">Findings</h2>
+          <div class="row">
+            <div class="seg" role="group" aria-label="Language">
+              <button id="lang-th" aria-pressed="true">ไทย</button>
+              <button id="lang-en" aria-pressed="false">English</button>
+            </div>
+            <button class="ghost" id="btn-expand">Expand all</button>
+          </div>
+        </div>
+        <div class="findings" id="findings"></div>
+
+        <div class="panel">
+          <div class="row" style="justify-content: space-between;">
+            <h2>ISO/IEC 27001 evidence report</h2>
+            <div class="row">
+              <div class="seg" role="group" aria-label="Report view">
+                <button id="rv-rendered" aria-pressed="true">Report</button>
+                <button id="rv-md" aria-pressed="false">Markdown</button>
+                <button id="rv-llm" aria-pressed="false">LLM input (masked)</button>
+              </div>
+            </div>
+          </div>
+          <p class="note" id="report-note"></p>
+          <div class="codebox" id="report-box"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ INJECTION LAB -->
+  <section id="view-lab" data-view-panel="lab" hidden>
+    <div class="stack">
+      <div class="panel">
+        <h2>Can an attacker steer an AI log analyst?</h2>
+        <p style="max-width: 72ch;">Attackers control fields that end up in FortiGate logs: User-Agent, URL, DNS query names, login user names. When an LLM reads those logs, that text lands in its prompt. The samples below hide instructions in those fields. They ask the model to call the attack benign and to print <code>CANARY-7731</code>. Select an entry, compare the two prompts, then run the output guard.</p>
+      </div>
+      <div class="grid">
+        <div class="stack">
+          <div class="panel">
+            <div class="row" style="justify-content: space-between;"><h3>Sample logs</h3><span class="eyebrow">synthetic · 30 entries · 5 seen + 9 held-out attacks</span></div>
+            <div class="loglist" id="loglist"></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="panel">
+            <div class="row" style="justify-content: space-between;"><h3 id="field-title">Fields</h3><span class="eyebrow">trusted vs attacker-controlled</span></div>
+            <div class="scroll"><table class="fieldtbl" id="fields"></table></div>
+          </div>
+          <div class="panel">
+            <div class="row" style="justify-content: space-between;">
+              <h3>Prompt sent to the model</h3>
+              <div class="seg" role="group" aria-label="Prompt type">
+                <button id="pm-naive" aria-pressed="false">Naive</button>
+                <button id="pm-hard" aria-pressed="true">Hardened</button>
+              </div>
+            </div>
+            <p class="note" id="prompt-note"></p>
+            <div class="codebox"><pre class="code wrap-text" id="prompt"></pre></div>
+          </div>
+          <div class="panel">
+            <h3>Output guard</h3>
+            <p class="note">Deterministic code checks every model reply before anyone sees it, and fails closed. Unknown classes and actions are rejected. A missing verdict becomes <i>unknown / investigate</i>, and duplicates keep the more severe one. An entry the detector flagged can never come back as benign. Independently of the detector, a <i>risk floor</i> from device-generated fields (level, severity, IPS, failed login, external source carrying attacker text) stops the model from clearing an entry: at most it drops to suspicious / monitor. Reasons that repeat attacker text are removed. The reply below is an example of a manipulated model (log 11 is an attack the detector misses; most entries are missing). Edit it, or paste a real reply.</p>
+            <textarea id="reply" spellcheck="false" style="min-height: 170px" aria-label="Model reply to check"></textarea>
+            <div class="row"><button class="primary" id="btn-guard">Run guard</button></div>
+            <div class="scroll" id="guard-out"></div>
+          </div>
+          <div class="panel" id="eval-panel" hidden>
+            <h3>Measured: naive vs hardened prompt</h3>
+            <p class="note" id="eval-note"></p>
+            <div class="scroll md" id="eval"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ HOW IT WORKS -->
+  <section id="view-how" data-view-panel="how" hidden>
+    <div class="stack">
+      <div class="panel">
+        <h2>Deterministic checks decide. The LLM explains.</h2>
+        <p style="max-width: 75ch;">Parsing, rule matching and shadow analysis are ordinary code with unit tests, so every finding cites a config line. The on-prem LLM only gets masked, structured findings. It writes the Thai/English summary and triages logs, and its output passes a guard before a person reviews it. Nothing is changed on any device.</p>
+        <pre class="mermaid">
+flowchart LR
+  A[FortiGate backup] --> P[Parser + checks]
+  L[FortiGate / SIEM logs] --> S[Split trusted vs untrusted fields]
+  P --> F[Findings with line numbers]
+  F --> R[ISO 27001 evidence report]
+  F --> M[Masking A.8.11]
+  S --> D[Injection detector + datamarking]
+  M --> LLM[On-prem LLM: vLLM / Ollama on KKU GPU]
+  D --> LLM
+  LLM --> G[Output guard]
+  G --> H[Engineer reviews]
+  H --> T[ITSM ticket / audit pack]
+        </pre>
+      </div>
+      <div class="how">
+        <div class="panel">
+          <h3>Built for the ISMS from day 1</h3>
+          <ul>
+            <li><b>A.8.11 Data masking:</b> IPs, hostnames, e-mails and secrets are replaced with tokens before any LLM call. The mapping stays local.</li>
+            <li><b>A.5.23 Cloud services:</b> no cloud LLM. The target is a model on the university's own GPU servers.</li>
+            <li><b>A.5.15 / A.8.2 Access:</b> read-only inputs (backup file, log export). There is no write path to any device.</li>
+            <li><b>A.8.15 Logging:</b> the CLI appends every LLM call (masked prompt, reply, model, endpoint, timing, SHA-256) to an audit JSONL file with mode 0600.</li>
+            <li><b>A.8.8 Vulnerabilities:</b> management-plane exposure is flagged with exploited CVEs as context.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Co-op roadmap (16 weeks)</h3>
+          <dl class="phase">
+            <dt>wk 1–2</dt><dd>LLM risk assessment (6.1.2 + OWASP LLM Top 10), baselines, read-only access agreed</dd>
+            <dt>wk 3–6</dt><dd>This config review on real (sanitised) backups; evidence pack for the surveillance audit</dd>
+            <dt>wk 7–11</dt><dd>Ticket → evidence: ITSM text + iMaster NCE / Zabbix / FortiAnalyzer APIs (read-only) → cited triage draft</dd>
+            <dt>wk 12–14</dt><dd>Red-team the assistant with log injection on KKU-like traffic; measure before/after</dd>
+            <dt>wk 15–16</dt><dd>Handover, runbook, metrics, draft paper</dd>
+          </dl>
+        </div>
+        <div class="panel">
+          <h3>Limits of this prototype</h3>
+          <ul>
+            <li>Static analysis only. A backup has no hit counts, so unused rules are not found yet.</li>
+            <li>Internet-facing interfaces are found by <code>role wan</code> and name. Confirm them.</li>
+            <li>Shadowing skips rules that match on users, groups, ISDB or negation. IPv6 is not analysed.</li>
+            <li>The injection detector is a heuristic: it flags 5/5 of the attacks it was written with but only 1/9 held-out ones. The guard's risk floor, not the detector, is the control.</li>
+            <li>The floor only uses device-generated fields. An attack whose device fields look harmless (log 20, a DNS beacon with a reassuring name) can still be cleared by the model. Threat-intel fields (DNS filter category, IOC lists) are the next step.</li>
+            <li>Firmware advisories are not checked offline. Verify on FortiGuard PSIRT.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Run it with a local LLM</h3>
+          <p class="note">This page is blocked from network calls, so the LLM steps run from the CLI on a machine that can reach the model server.</p>
+          <pre class="code">node cli/netsec.js analyze backup.conf --lang th
+node cli/netsec.js narrate backup.conf --lang th \
+  --llm http://gpu-host:8000/v1 --model &lt;model&gt;
+node cli/netsec.js inject-eval logs.log --ablate --batch 5 \
+  --llm http://localhost:11434/v1 --model &lt;model&gt; --runs 3</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Prototype by Amon Oswald Hackl (B.Eng Digital Media Engineering, KKU) for discussion with the ODT network &amp; cyber team. Not an official KKU system. All sample data is synthetic.</div>
+</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>/*__CORE__*/</script>
+<script>/*__DATA__*/</script>
+<script>/*__APP__*/</script>
