@@ -2,6 +2,8 @@
 
 **Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
 
+**Step-by-step guide for the mentor (ไทย / English): https://monnnnnnnnnnn.github.io/kku-netsec-assistant/how-it-works.html**
+
 An LLM layer for the KKU Office of Digital Technology network and cyber team. It runs on-prem, only reads its inputs, and is built to fit the ISMS. This prototype is for the mentor to try before the co-op starts.
 
 **Idea in one line:** deterministic code finds the problems and cites config lines. A local LLM explains them in Thai and English and helps triage logs. Every LLM output goes through a guard so attacker text in the logs can't steer it.
