@@ -1,9 +1,9 @@
 {
   "name": "kku-netsec-assistant",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Prototype: FortiGate config review with ISO/IEC 27001:2022 evidence, and log-injection-hardened LLM triage. On-prem, read-only.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test test/*.test.js",

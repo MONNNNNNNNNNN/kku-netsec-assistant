@@ -4,7 +4,11 @@
  * NetSec Assistant CLI. Same core as the browser demo.
  *
  *   node cli/netsec.js analyze  <config.conf> [--lang th|en] [--json]
- *   node cli/netsec.js narrate  <config.conf> [--lang th|en] --llm <url> --model <name> [--dry-run]
+ *   node cli/netsec.js narrate  <config.conf> [--lang th|en] --llm <url> --model <name> [--dry-run] [--allow-incomplete]
+ *   node cli/netsec.js triage   <logs.log> --llm <url> --model <name> [--batch 10] [--lang th|en] [--json out.json] [--dry-run]
+ *   Exit codes: 0 ok, 1 findings / alerts, 2 usage or refused endpoint, 3 audit write failed, 4 incomplete analysis.
+ *   The --llm host must resolve to loopback or a private range (on-prem). Override: --allow-remote-llm.
+ *   Non-loopback endpoints need https unless --allow-http-lan.
  *   LLM calls are appended to audit/llm-calls.jsonl (--audit <file>, --no-audit)
  *   node cli/netsec.js inject-eval <logs.log> --llm <url> --model <name> [--runs 3] [--ablate | --modes naive,full]
  *                                [--batch 5] [--limit 30] [--labels file.json] [--out results/x.md] [--verbose]
@@ -48,9 +52,55 @@ function audit(rec) {
   } catch (e) { console.error(`audit log write failed: ${e.message}`); process.exitCode = 3; }
 }
 
+/*
+ * On-prem enforcement (A.5.23): the LLM endpoint must resolve to loopback or a
+ * private range. Checked once per process, before the first request.
+ */
+const net = require('node:net');
+const dns = require('node:dns').promises;
+function ipClass(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 127) return 'loopback';
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)) return 'private';
+    return 'remote';
+  }
+  const v = ip.toLowerCase();
+  if (v === '::1') return 'loopback';
+  const m = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) return ipClass(m[1]);
+  if (/^f[cd]/.test(v) || /^fe[89ab]/.test(v)) return 'private';
+  return 'remote';
+}
+const ENDPOINT = new Map();
+async function checkEndpoint(base) {
+  if (ENDPOINT.has(base)) return ENDPOINT.get(base);
+  let u;
+  try { u = new URL(String(base)); } catch { console.error(`invalid --llm URL: ${base}`); process.exit(2); }
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  let addrs;
+  try { addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((a) => a.address); }
+  catch (e) { console.error(`cannot resolve LLM host ${host}: ${e.message}`); process.exit(2); }
+  const classes = addrs.map(ipClass);
+  const cls = classes.includes('remote') ? 'remote' : classes.every((c) => c === 'loopback') ? 'loopback' : 'private';
+  const override = [];
+  if (cls === 'remote') {
+    if (!process.argv.includes('--allow-remote-llm')) { console.error(`refused: LLM endpoint ${host} (${addrs.join(', ')}) is not on-prem (loopback or private range). Masked data would leave the network. Override with --allow-remote-llm.`); process.exit(2); }
+    override.push('allow-remote-llm');
+  }
+  if (cls !== 'loopback' && u.protocol !== 'https:') {
+    if (!process.argv.includes('--allow-http-lan')) { console.error(`refused: ${u.protocol}//${host} is not loopback, so https is required. Use https or pass --allow-http-lan for a trusted LAN.`); process.exit(2); }
+    override.push('allow-http-lan');
+  }
+  const r = { endpoint_class: cls, endpoint_overrides: override };
+  ENDPOINT.set(base, r);
+  return r;
+}
+
 async function chat(base, model, messages, opts = {}) {
+  const ep = await checkEndpoint(base);
   const t0 = Date.now();
-  const rec = { ts: new Date().toISOString(), cmd: process.argv[2], tool: `netsec ${require('../package.json').version}`, endpoint: new URL(String(base)).host, model, temperature: opts.temperature ?? 0.2, prompt_sha256: sha(JSON.stringify(messages)), messages };
+  const rec = { ts: new Date().toISOString(), cmd: process.argv[2], tool: `netsec ${require('../package.json').version}`, endpoint: new URL(String(base)).host, ...ep, model, temperature: opts.temperature ?? 0.2, prompt_sha256: sha(JSON.stringify(messages)), messages };
   try {
     const out = await chatRaw(base, model, messages, opts);
     audit({ ...rec, ms: out.ms, reply_sha256: sha(out.text), reply: out.text });
@@ -97,7 +147,7 @@ async function main() {
   const o = args(process.argv.slice(2));
   const [cmd, file] = o._;
   if (!cmd || !file) {
-    console.error('usage: netsec.js analyze|narrate|inject-eval <file> [--lang th|en] [--llm url --model name]');
+    console.error('usage: netsec.js analyze|narrate|triage|inject-eval <file> [--lang th|en] [--llm url --model name]');
     process.exit(2);
   }
   const text = fs.readFileSync(file, 'utf8');
@@ -107,17 +157,80 @@ async function main() {
     const r = N.analyze(text);
     if (o.json) console.log(JSON.stringify(r, null, 2));
     else console.log(N.buildReport(r, lang));
-    process.exitCode = r.counts.critical || r.counts.high ? 1 : 0;
+    if (!r.coverage.complete) {
+      console.error(`INCOMPLETE ANALYSIS: ${r.coverage.gaps} item(s) not checked (parse errors ${r.coverage.parseErrors.length}, skipped rules ${r.coverage.shadowSkipped.length}, IPv6 policies ${r.coverage.ipv6Policies}, undefined names ${r.coverage.unresolved.length}). See the Coverage section.`);
+      process.exitCode = 4;
+    } else process.exitCode = r.counts.critical || r.counts.high ? 1 : 0;
     return;
   }
 
   if (cmd === 'narrate') {
     const r = N.analyze(text);
+    if (!r.coverage.complete && !o['allow-incomplete']) {
+      console.error(`refused: INCOMPLETE ANALYSIS (${r.coverage.gaps} item(s) not checked). Run "analyze" to see the Coverage section, or pass --allow-incomplete (the LLM is then told the analysis is incomplete).`);
+      process.exitCode = 4;
+      return;
+    }
     const p = N.buildLlmReportPrompt(r, lang);
     if (o['dry-run']) { console.log(p.messages.map((m) => `--- ${m.role}\n${m.content}`).join('\n')); return; }
     const { text: reply, ms } = await chat(need(o, 'llm'), need(o, 'model'), p.messages, { maxTokens: 1500 });
     const head = lang === 'th' ? '## บทสรุปผู้บริหาร (ร่างโดย LLM ภายในองค์กร ต้องตรวจทาน)' : '## Executive summary (drafted by on-prem LLM, review required)';
     console.log(`${head}\n\n${N.unmask(reply, p.map)}\n\n_model: ${o.model}, ${(ms / 1000).toFixed(1)} s_\n\n${N.buildReport(r, lang)}`);
+    return;
+  }
+
+  if (cmd === 'triage') {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) { console.error('no log lines'); process.exit(2); }
+    const batch = Math.max(1, Number(o.batch || 10));
+    const st = N.newMaskState();
+    const all = N.buildHardenedPrompt(lines, { maskState: st }); // entries + tokens shared by every chunk
+    if (o['dry-run']) {
+      const p = N.buildHardenedPrompt(lines.slice(0, batch), { maskState: st });
+      console.log(p.messages.map((m) => `--- ${m.role}\n${m.content}`).join('\n'));
+      return;
+    }
+    const base = need(o, 'llm'), model = need(o, 'model');
+    const raw = [], errs = [];
+    let ms = 0;
+    for (let s = 0; s < lines.length; s += batch) {
+      const p = N.buildHardenedPrompt(lines.slice(s, s + batch), { maskState: st, startId: s + 1 });
+      try {
+        const res = await chat(base, model, p.messages, { temperature: 0.2, maxTokens: 300 + 120 * Math.min(batch, lines.length - s) });
+        ms += res.ms;
+        const j = N.extractJson(res.text);
+        if (Array.isArray(j?.verdicts)) raw.push(...j.verdicts);
+        else errs.push(`lines ${s + 1}-${Math.min(s + batch, lines.length)}: no JSON verdicts`);
+      } catch (e) { errs.push(`lines ${s + 1}-${Math.min(s + batch, lines.length)}: ${e.message}`); }
+    }
+    const g = N.validateVerdicts({ verdicts: raw }, all.entries);
+    const un = (x) => N.unmask(String(x ?? ''), st.map);
+    const CR = { malicious: 0, suspicious: 1, unknown: 2, benign: 3 }, AR = { block_ip: 0, investigate: 1, monitor: 2, none: 3 };
+    const byId = new Map(all.entries.map((e) => [e.log_id, e]));
+    const rows = g.verdicts.map((v) => ({ v, e: byId.get(v.log_id) }))
+      .sort((a, b) => CR[a.v.classification] - CR[b.v.classification] || AR[a.v.recommended_action] - AR[b.v.recommended_action] || a.v.log_id - b.v.log_id);
+    const th = lang === 'th';
+    const cnt = (k) => g.verdicts.filter((v) => v.classification === k).length;
+    const overridden = g.verdicts.filter((v) => v.overridden.length);
+    const cell = (x) => String(x).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    const out = [
+      th ? '# รายงาน triage log (ร่างโดย LLM ภายในองค์กร ผ่าน output guard แล้ว ต้องตรวจทาน)' : '# Log triage (drafted by on-prem LLM, checked by the output guard, review required)', '',
+      `- ${th ? 'ไฟล์' : 'file'}: \`${file}\` · ${lines.length} ${th ? 'บรรทัด' : 'entries'} · model \`${model}\` · ${(ms / 1000).toFixed(1)} s`,
+      `- malicious ${cnt('malicious')} · suspicious ${cnt('suspicious')} · unknown ${cnt('unknown')} · benign ${cnt('benign')}`,
+      `- ${th ? 'guard แก้คำตอบของโมเดล' : 'guard overrides'}: ${overridden.length}/${g.verdicts.length}${errs.length ? ` · ${th ? 'ข้อผิดพลาด' : 'errors'}: ${errs.length}` : ''}`,
+      ...errs.map((e) => `  - ${cell(e)}`), '',
+      `| log | ${th ? 'เวลา' : 'time'} | ${th ? 'ต้นทาง → ปลายทาง' : 'source → destination'} | ${th ? 'เหตุการณ์' : 'event'} | class | action | ${th ? 'เหตุผล' : 'reason'} | guard |`,
+      '|---|---|---|---|---|---|---|---|',
+      ...rows.map(({ v, e }) => {
+        const t = e.trusted;
+        const ev = t.attack || t.logdesc || [t.type, t.subtype].filter(Boolean).join('/');
+        return `| ${v.log_id} | ${cell(`${t.date || ''} ${t.time || ''}`.trim())} | ${cell(un(`${t.srcip || t.remip || '-'} → ${t.dstip || '-'}`))} | ${cell(un(ev))} | ${v.classification} | ${v.recommended_action} | ${cell(un(v.reason))} | ${cell(v.overridden.join('; ') || '-')} |`;
+      }), '',
+      th ? '_ข้อมูลที่ส่งให้ LLM ถูก mask แล้ว และทุกการเรียกถูกบันทึกใน audit log ไม่มีการบล็อกหรือแก้ไขอุปกรณ์โดยอัตโนมัติ_' : '_Only masked data was sent to the LLM; every call is in the audit log. Nothing is blocked or changed automatically._',
+    ];
+    console.log(out.join('\n'));
+    if (o.json) fs.writeFileSync(o.json, JSON.stringify(rows.map(({ v }) => ({ ...v, reason: un(v.reason) })), null, 1) + '\n');
+    process.exitCode = g.verdicts.some((v) => v.classification === 'malicious' || (v.classification === 'suspicious' && v.recommended_action !== 'monitor' && v.recommended_action !== 'none')) ? 1 : 0;
     return;
   }
 

@@ -210,7 +210,7 @@
         else out.push(...expandAddr(book, g.members, seen));
         continue;
       }
-      out.push(book.leaves.get(n) || { name: n, opaque: true });
+      out.push(book.leaves.get(n) || { name: n, opaque: true, missing: true });
     }
     return out;
   }
@@ -258,7 +258,7 @@
       seen.add(n);
       const g = book.groups.get(n);
       if (g) { out.push(...expandSvc(book, g, seen)); continue; }
-      out.push(book.leaves.get(n) || { name: n, all: false, opaque: true, ranges: {} });
+      out.push(book.leaves.get(n) || { name: n, all: false, opaque: true, ranges: {}, missing: true });
     }
     return out;
   }
@@ -300,10 +300,15 @@
           service: sv(e, 'service', []), schedule: s1(e, 'schedule', 'always'),
           action: s1(e, 'action', 'deny'), status: s1(e, 'status', 'enable'),
           logtraffic: s1(e, 'logtraffic', 'utm'), utm: s1(e, 'utm-status', 'disable'),
-          special: ['users', 'groups', 'fsso-groups'].some((k) => e.settings[k]) ||
-            ['internet-service', 'internet-service-src', 'srcaddr-negate', 'dstaddr-negate', 'service-negate']
-              .some((k) => s1(e, k, 'disable') === 'enable'),
         };
+        // Rules the shadow analysis cannot model are skipped; record why so the report can list them.
+        p.skipReasons = [
+          ...['users', 'groups', 'fsso-groups'].filter((k) => e.settings[k]).map((k) => (k === 'users' ? 'users' : 'groups')),
+          ...(['internet-service', 'internet-service-src'].some((k) => s1(e, k, 'disable') === 'enable') ? ['ISDB'] : []),
+          ...(['srcaddr-negate', 'dstaddr-negate', 'service-negate'].some((k) => s1(e, k, 'disable') === 'enable') ? ['negate'] : []),
+        ].filter((x, i, a) => a.indexOf(x) === i);
+        p.special = p.skipReasons.length > 0;
+        p.ipv6 = ['srcaddr6', 'dstaddr6'].some((k) => sv(e, k, []).length > 0);
         p.src = expandAddr(ab, p.srcaddr);
         p.dst = expandAddr(ab, p.dstaddr);
         p.svc = expandSvc(sb, p.service);
@@ -623,7 +628,18 @@
     for (const f of findings) counts[f.severity] += f.instances.length;
     const isoHit = [...new Set(findings.flatMap((f) => f.iso))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 
+    // Coverage: anything the analysis could not check makes the result incomplete (fail closed).
+    const unresolved = new Set();
+    for (const p of policies) for (const l of [...p.src, ...p.dst, ...p.svc]) if (l.missing) unresolved.add(`${l.name} (${p.label}, line ${p.line})`);
+    let ipv6Policies = policies.filter((p) => p.ipv6).length;
+    for (const { block } of blocks(tree, 'firewall policy6')) ipv6Policies += block.entries.length;
+    const shadowSkipped = policies.filter((p) => p.status === 'enable' && p.special).map((p) => ({ label: p.label, line: p.line, reason: p.skipReasons.join(', ') }));
+    const coverage = { parseErrors: tree.errors, shadowSkipped, ipv6Policies, unresolved: [...unresolved] };
+    coverage.gaps = coverage.parseErrors.length + shadowSkipped.length + ipv6Policies + coverage.unresolved.length;
+    coverage.complete = coverage.gaps === 0;
+
     return {
+      coverage,
       meta: {
         model: tree.header.model, version: tree.header.version, build: tree.header.build,
         vdoms: tree.root.children.vdom ? tree.root.children.vdom.entries.map((e) => e.id) : ['root'],
@@ -704,6 +720,9 @@
         'IPv6 policies are not analysed.',
       ],
       line: 'line', none: 'No findings.',
+      covTitle: 'Coverage', covOk: 'Complete: every statement parsed and every enabled rule was checked.',
+      covBanner: (n) => `**INCOMPLETE ANALYSIS: ${n} item(s) were not checked.** Findings below are not a full assessment; a clean result here does not mean the configuration is clean.`,
+      covParse: 'Parse errors', covSkip: 'Enabled rules skipped by shadow/redundancy analysis', covV6: 'IPv6 policies (not analysed)', covUnres: 'Undefined address/service names',
     },
     th: {
       title: 'รายงานทบทวนการตั้งค่าไฟร์วอลล์: หลักฐานประกอบ ISO/IEC 27001:2022',
@@ -719,6 +738,9 @@
         'ยังไม่วิเคราะห์นโยบาย IPv6',
       ],
       line: 'บรรทัด', none: 'ไม่พบประเด็น',
+      covTitle: 'ความครอบคลุมของการวิเคราะห์', covOk: 'ครบถ้วน: อ่านทุกคำสั่งได้ และตรวจกฎที่เปิดใช้งานครบทุกข้อ',
+      covBanner: (n) => `**การวิเคราะห์ไม่ครบถ้วน: มี ${n} รายการที่ไม่ได้ตรวจ** ผลด้านล่างไม่ใช่การประเมินฉบับสมบูรณ์ หากไม่พบประเด็นก็ไม่ได้หมายความว่าการตั้งค่าไม่มีปัญหา`,
+      covParse: 'ข้อผิดพลาดในการอ่านไฟล์', covSkip: 'กฎที่เปิดใช้งานแต่ข้ามการตรวจกฎที่ถูกบัง/ซ้ำซ้อน', covV6: 'นโยบาย IPv6 (ไม่ได้วิเคราะห์)', covUnres: 'ชื่อ address/service ที่ไม่มีการกำหนด',
     },
   };
   const SEV_L = {
@@ -727,12 +749,21 @@
   };
 
   function buildReport(result, lang = 'en') {
-    const t = L[lang], m = result.meta, out = [];
+    const t = L[lang], m = result.meta, cv = result.coverage, out = [];
     out.push(`# ${t.title}`, '');
+    if (!cv.complete) out.push(`> ${t.covBanner(cv.gaps)}`, '');
     out.push(`## ${t.scope}`, '', `| | |`, `|---|---|`,
       `| ${t.device} | ${m.model || '-'} |`, `| ${t.firmware} | ${m.version ? `${m.version} build ${m.build}` : '-'} |`,
       `| ${t.vdoms} | ${m.vdoms.join(', ')} |`, `| ${t.policies} | ${m.policies} (${m.enabledPolicies} enabled) |`,
       `| ${t.date} | ${m.analyzedAt.slice(0, 10)} |`, '');
+    out.push(`## ${t.covTitle}`, '');
+    if (cv.complete) out.push(t.covOk, '');
+    else {
+      if (cv.parseErrors.length) out.push(`${t.covParse}:`, '', ...cv.parseErrors.map((e) => `- ${t.line} ${e.line}: ${e.msg}`), '');
+      if (cv.shadowSkipped.length) out.push(`${t.covSkip}:`, '', ...cv.shadowSkipped.map((x) => `- ${x.label} (${t.line} ${x.line}): ${x.reason}`), '');
+      if (cv.ipv6Policies) out.push(`- ${t.covV6}: ${cv.ipv6Policies}`, '');
+      if (cv.unresolved.length) out.push(`${t.covUnres}:`, '', ...cv.unresolved.map((x) => `- ${x}`), '');
+    }
     out.push(`## ${t.summary}`, '', `| ${t.sev} | ${t.count} |`, '|---|---|');
     for (const s of SEV) if (result.counts[s]) out.push(`| ${SEV_L[lang][s]} | ${result.counts[s]} |`);
     out.push('', `${t.controls}: ${result.isoHit.map((c) => `${c} ${ISO[c][lang]}`).join('; ') || '-'}`, '');
@@ -756,6 +787,11 @@
     const payload = {
       device: { model: result.meta.model, firmware: result.meta.version, policies: result.meta.policies },
       counts: result.counts,
+      coverage: result.coverage.complete ? 'complete' : {
+        status: 'INCOMPLETE', not_checked: result.coverage.gaps,
+        parse_errors: result.coverage.parseErrors.length, rules_skipped: result.coverage.shadowSkipped.length,
+        ipv6_policies_not_analysed: result.coverage.ipv6Policies, undefined_names: result.coverage.unresolved.length,
+      },
       findings: result.findings.map((f) => ({
         check: f.check, severity: f.severity, iso: f.iso, title: f.titles.en,
         instances: f.instances.slice(0, 10).map((x) => ({ ref: x.ref, line: x.line, detail: x.detail })),
@@ -766,7 +802,7 @@
     const language = lang === 'th' ? 'Thai (keep technical terms such as policy, VDOM, IPsec in English)' : 'English';
     return {
       messages: [
-        { role: 'system', content: `You are a senior network security engineer at a university central IT office that is certified to ISO/IEC 27001:2022. You write audit-ready summaries. Use only the findings provided. Do not invent devices, numbers or findings. Tokens such as PRIV_IP_3 or HOST_2 are pseudonyms; keep them unchanged.` },
+        { role: 'system', content: `You are a senior network security engineer at a university central IT office that is certified to ISO/IEC 27001:2022. You write audit-ready summaries. Use only the findings provided. Do not invent devices, numbers or findings. If coverage is INCOMPLETE, say so in the first sentence and never describe the configuration as secure or clean. Tokens such as PRIV_IP_3 or HOST_2 are pseudonyms; keep them unchanged.` },
         { role: 'user', content: `Write in ${language}:\n1. An executive summary of at most 5 sentences for the IT director.\n2. A prioritised remediation plan (top 5) with the Annex A control for each.\n3. One sentence on residual risk.\n\nFindings JSON:\n${st.text}` },
       ],
       map: st.map,
@@ -1026,7 +1062,7 @@
   }
 
   return {
-    version: '0.2.0',
+    version: '0.3.0',
     parseConfig, analyze, buildReport, buildLlmReportPrompt, mask, unmask,
     parseFortiLog, detectInjection, buildNaivePrompt, buildHardenedPrompt, buildPrompt, validateVerdicts, extractJson,
     newMaskState, maskLogLine, riskFloor, PROMPT_MODES,

@@ -1,4 +1,4 @@
-# NetSec Assistant (prototype v0.2)
+# NetSec Assistant (prototype v0.3)
 
 **Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
 
@@ -17,15 +17,17 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
   4. To test a real backup, use *Open backup file…*. It never leaves the browser. Use a sanitised copy anyway.
 - **CLI (Node 20+, no dependencies):**
   ```bash
-  npm test                                   # 20 tests (unit + CLI end to end against a fake LLM)
+  npm test                                   # 24 tests (unit + CLI end to end against a fake LLM)
   node cli/netsec.js analyze backup.conf --lang th > report.md
   node cli/netsec.js narrate backup.conf --lang th --llm http://<gpu-host>:8000/v1 --model <model>
   node cli/netsec.js narrate backup.conf --dry-run        # print the masked prompt only
+  node cli/netsec.js triage export.log --llm https://<gpu-host>:8000/v1 --model <model> --lang th > triage.md
   node cli/netsec.js inject-eval samples/fgt-logs.log --detector-only     # detector recall, no LLM
   node cli/netsec.js inject-eval samples/fgt-logs.log --ablate --batch 5 --runs 3 \
        --llm http://localhost:11434/v1 --model <model> --out results/inject-eval-<model>.md
   ```
-  `--llm` takes any OpenAI-compatible endpoint: vLLM, Ollama, LM Studio. Thinking is turned off by default (`reasoning_effort: none`); add `--think` to keep it.
+  `--llm` takes an OpenAI-compatible endpoint (vLLM, Ollama, LM Studio), but **only on-prem**: the host must resolve to loopback or a private range (RFC 1918, 100.64/10, IPv6 ULA), and non-loopback hosts need https. `--allow-remote-llm` and `--allow-http-lan` override this and are recorded in the audit log.
+  Exit codes: 0 ok · 1 findings/alerts · 2 usage or refused endpoint · 3 audit write failed · **4 incomplete analysis**. Thinking is turned off by default (`reasoning_effort: none`); add `--think` to keep it.
 
 ## What it checks (FortiOS backup, offline)
 
@@ -38,6 +40,8 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
 
 Multi-VDOM backups, address and service groups, and multi-line quoted values are handled. Every finding carries its config line number and a suggested CLI fix, which a person reviews before applying.
 
+**Coverage fails closed.** Anything the analysis could not check is listed in a *Coverage* section, and the report opens with an **INCOMPLETE ANALYSIS** banner: parse errors, enabled rules skipped by the shadow analysis (users, groups, ISDB, negate), IPv6 policies (not analysed) and undefined address/service names. `analyze` then exits 4, and `narrate` refuses unless `--allow-incomplete` (the LLM is then told the analysis is incomplete). Not covered at all: unused rules (hit counts are not in a backup).
+
 ## Design choices that matter for a certified ISMS
 
 - **No write path.** Inputs are a backup file and a log export, and nothing connects to devices (A.5.15, A.8.2).
@@ -45,7 +49,7 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
 - **Audit trail** (A.8.15). The CLI appends every LLM call to `audit/llm-calls.jsonl` (mode 0600): masked prompt, reply, model, endpoint, timing and SHA-256 hashes. `--audit <file>` or `NETSEC_AUDIT` moves it, `--no-audit` turns it off.
 - **No cloud LLM** (A.5.23). The target is an open-weight model on KKU's own GPU servers.
 - **The browser page cannot exfiltrate.** `dist/standalone.html` carries a CSP with `connect-src 'none'`, `form-action 'none'` and `frame-src 'none'` (only the Google Fonts stylesheet loads); the published artifact runs under the host's CSP. The LLM steps run from the CLI.
-- **Log-injection defence in depth.** FortiGate logs contain attacker-chosen text (User-Agent, URL, DNS qname, login user). The hardened prompt separates those fields, caps and *datamarks* them (spotlighting, Hines et al., 2024), wraps them in a random boundary and passes detector flags as facts. The deterministic **output guard** is the real control, and it fails closed:
+- **Log-injection defence in depth.** FortiGate logs contain attacker-chosen text (User-Agent, URL, DNS qname, login user). The hardened prompt separates those fields, caps and *datamarks* them (spotlighting, Hines et al., 2024), wraps them in a random boundary and passes detector flags as facts. The deterministic **output guard** is the main control. It is an experimental mitigation, not yet validated on real traffic or with repeated runs. It fails closed:
   - closed class/action enums (no "allow"), confidence clamped;
   - a missing verdict becomes `unknown/investigate`, and duplicate verdicts keep the more severe one (so "leave this entry out" does not hide an alert);
   - "benign" or "none" on an entry the detector flagged is raised to suspicious/investigate;
@@ -71,17 +75,41 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
 ## Related work
 - Pandey & Bhujang, *Poisoning the Watchtower: Prompt Injection Attacks Against LLM-Augmented Security Operations Through Adversarial Log Content*, arXiv [2605.24421](https://arxiv.org/abs/2605.24421) (2026). Same threat model (attacker-written log fields); prompt-level defences cut average success from 26.6% to 11.8%.
 - Karanjai et al., *LogInject / Context Contamination*, arXiv [2607.14493](https://arxiv.org/abs/2607.14493) (2026). 12,847-entry benchmark; "Context Stitching" splits a payload across entries (76.4% success). Logs 31–32 here reproduce that pattern.
+- Tools it complements, not replaces: [Batfish](https://batfish.readthedocs.io/en/latest/formats.html) (open source, supports FortiGate configs since its 2021-04-12 release; its FortiOS coverage depth on a real backup is still to be tested), FortiManager/FortiAnalyzer (policy management, log analytics), Wazuh (open-source SIEM), [CISO Assistant](https://github.com/intuitem/ciso-assistant-community) (open-source GRC for ISO 27001 evidence tracking).
 - What this prototype adds: a deterministic guard that fails closed and floors risk from device-generated fields, so the result does not depend on the model or the detector; Thai and held-out payloads; FortiOS fields; a small on-prem model.
+
+## Where it sits
+
+It complements the tools ODT already has; it does not replace a SIEM or a policy manager.
+
+```
+FortiGate / network devices ──► config backups, log exports
+   │
+   ├─ FortiAnalyzer / Wazuh ........ collect, correlate, alert            (existing)
+   ├─ Batfish / FortiManager ....... policy validation, change control    (existing / cross-check)
+   └─ NetSec Assistant ............. deterministic checks + ISO evidence,
+                                     Thai/English explanation, guarded LLM triage
+                                     read-only, on-prem, every LLM call audited
+                     │
+                     ▼
+        security engineer reviews and approves (no automatic change)
+```
+
+Research framing: *an evaluation of deterministic, device-field-based risk enforcement for LLM-assisted FortiGate log triage (Thai, context-stitching, on-prem)*.
 
 ## Roadmap (16-week co-op)
 
+Config work is validated before log integration, so the project does not become five unfinished ones.
+
 | Weeks | Deliverable |
 |---|---|
-| 1–2 | LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10), baselines, read-only access agreed; decision gate with the mentor (see `coop/RESEARCH.md`, Options considered) |
-| 3–6 | Run this review on real sanitised backups; evidence pack for the ISO surveillance audit; add policy hit counts (FortiAnalyzer/`diagnose`) to find unused rules |
-| 7–11 | *Optional, needs read-only API accounts.* Ticket → evidence: Thai ITSM ticket text + iMaster NCE / CampusInsight, Zabbix and FortiAnalyzer APIs (read-only) → cited triage draft |
-| 12–14 | Red-team the assistant with log injection on KKU-like traffic; compare models on the GPU servers |
-| 15–16 | Handover, runbook, metrics before/after, draft paper (e.g. ECTI-CIT) |
+| 1–2 | Decision gate: is FortiManager/FortiAnalyzer policy analysis in use, data permissions, GPU access. LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10) |
+| 3–5 | Parser and checks validated on real sanitised backups; Batfish as a cross-check oracle for shadowed rules |
+| 6–7 | ISO evidence report for the surveillance audit |
+| 8–10 | `triage` on real log exports; optional read-only import from Wazuh or FortiAnalyzer |
+| 11–13 | Multi-model, multi-run injection research on the GPU servers (Thai, context-stitching, DNS) |
+| 14–15 | Performance, privacy and false-positive evaluation |
+| 16 | Handover: runbook, metrics before/after, draft paper (e.g. ECTI-CIT) |
 
 ## Questions for the mentor
 
@@ -90,6 +118,7 @@ Multi-VDOM backups, address and service groups, and multi-line quoted values are
 3. Which Annex A controls take the most manual work at the surveillance audit?
 4. Read-only API accounts: iMaster NCE northbound, Zabbix, FortiAnalyzer. Which are realistic?
 5. What are "Garud" and the "Security Scoreboard" exactly, and which metric should this project move?
+6. Is FortiManager/FortiAnalyzer policy analysis already in use? Which focus do you prefer: this assistant, an ISO evidence assistant, or a `*.kku.ac.th` attack-surface monitor?
 
 ## Layout
 
@@ -98,11 +127,13 @@ src/core.js     parser, checks, report, masking, injection defences (shared by b
 src/app.js      browser UI
 web/page.html   page template
 build.js        inlines everything into index.html (GitHub Pages), dist/standalone.html and dist/index.html (artifact body)
-cli/netsec.js   analyze | narrate | inject-eval
+cli/netsec.js   analyze | narrate | triage | inject-eval
 samples/        synthetic FortiOS config and 32 log lines (issues and injections seeded on purpose);
                 fgt-logs.labels.json is the ground truth: 5 seen + 11 held-out attacks
-test/           node:test suite (core.test.js unit, cli.test.js end to end with a fake OpenAI-compatible server)
+test/           node:test suite (24 tests; fixtures/incomplete.conf exercises the coverage gate) (core.test.js unit, cli.test.js end to end with a fake OpenAI-compatible server)
 results/        measured LLM outputs
 ```
 
 All sample data is synthetic: documentation IP ranges (RFC 5737), `uni.example`, fake hashes. This is not an official KKU system.
+
+License: MIT (see `LICENSE`).

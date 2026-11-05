@@ -79,3 +79,64 @@ test('narrate --dry-run prints a masked prompt and calls no model', async () => 
   assert.match(r.stdout, /PRIV_IP_\d+|PUB_IP_\d+/);
   assert.ok(!/\b(10|172|192|198|203)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(r.stdout.replace(/255\.\d+\.\d+\.\d+/g, '')), 'no raw IP in the prompt');
 });
+
+test('incomplete analysis fails closed: analyze exits 4 with a banner, narrate refuses', async () => {
+  const a = await run(['analyze', 'test/fixtures/incomplete.conf', '--lang', 'en']);
+  assert.equal(a.code, 4, a.stderr);
+  assert.match(a.stdout, /INCOMPLETE ANALYSIS: 5 item\(s\) were not checked/);
+  assert.match(a.stdout, /policy 1 "Staff-VPN-Users" \(line 8\): groups/);
+  assert.match(a.stdout, /IPv6 policies \(not analysed\): 1/);
+  assert.match(a.stdout, /line 43: unknown keyword "frobnicate"/);
+  assert.match(a.stdout, /Lab-Net-Missing/);
+  const n = await run(['narrate', 'test/fixtures/incomplete.conf', '--dry-run', '--no-audit']);
+  assert.equal(n.code, 4);
+  assert.match(n.stderr, /refused: INCOMPLETE ANALYSIS/);
+  const f = await run(['narrate', 'test/fixtures/incomplete.conf', '--dry-run', '--no-audit', '--allow-incomplete']);
+  assert.equal(f.code, 0, f.stderr);
+  assert.match(f.stdout, /"status": "INCOMPLETE"/);
+});
+
+test('complete sample config: coverage complete, exit 1 for high findings, no secret in the narrate prompt', async () => {
+  const a = await run(['analyze', 'samples/fgt-demo.conf', '--lang', 'en']);
+  assert.equal(a.code, 1);
+  assert.match(a.stdout, /Complete: every statement parsed/);
+  const n = await run(['narrate', 'samples/fgt-demo.conf', '--dry-run', '--no-audit']);
+  assert.equal(n.code, 0, n.stderr);
+  assert.ok(!n.stdout.includes('NOTAREAL'), 'password/PSK hashes never reach the prompt');
+});
+
+test('LLM endpoint must be on-prem: public IP refused before any request, plain http to a LAN host needs a flag', async () => {
+  const pub = await run(['triage', 'samples/fgt-logs.log', '--llm', 'http://8.8.8.8:1/v1', '--model', 'x', '--no-audit']);
+  assert.equal(pub.code, 2);
+  assert.match(pub.stderr, /not on-prem/);
+  const lan = await run(['triage', 'samples/fgt-logs.log', '--llm', 'http://10.255.255.1:1/v1', '--model', 'x', '--no-audit']);
+  assert.equal(lan.code, 2);
+  assert.match(lan.stderr, /https is required/);
+});
+
+test('triage end to end: every entry gets a guarded verdict, overrides are shown, data is masked and audited', async () => {
+  const llm = await fakeLlm();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsec-'));
+  const auditFile = path.join(dir, 'audit.jsonl'), json = path.join(dir, 'v.json');
+  try {
+    const r = await run(['triage', 'samples/fgt-logs.log', '--llm', llm.url, '--model', 'fake', '--batch', '10', '--lang', 'en', '--audit', auditFile, '--json', json]);
+    assert.equal(r.code, 1, r.stderr); // alerts present
+    const rows = r.stdout.split('\n').filter((l) => /^\| \d+ \|/.test(l));
+    assert.equal(rows.length, 32);
+    const row32 = rows.find((l) => l.startsWith('| 32 |'));
+    assert.match(row32, /\| suspicious \| monitor \|/);
+    assert.match(row32, /risk floor \(level alert, utm\/ips/);
+    assert.match(r.stdout, /198\.51\.100\.77/, 'report is unmasked for the analyst');
+    assert.match(rows.find((l) => l.startsWith('| 17 |')), /missing verdict/);
+    const v = JSON.parse(fs.readFileSync(json, 'utf8'));
+    assert.equal(v.length, 32);
+    const audit = fs.readFileSync(auditFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(audit.length, 4, '32 lines / batch 10');
+    assert.equal(audit[0].endpoint_class, 'loopback');
+    const sent = JSON.stringify(llm.seen);
+    assert.ok(!/\b\d{1,3}(\.\d{1,3}){3}\b/.test(sent), 'no raw IPv4 sent');
+  } finally {
+    llm.server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

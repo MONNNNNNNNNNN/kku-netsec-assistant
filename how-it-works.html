@@ -166,7 +166,9 @@ footer { color: var(--muted); font-size: 13px; padding-bottom: 32px; }
   <p data-l="th">ในปี 2026 มีงานวิจัย 2 ชิ้นที่แสดงแล้วว่า LLM ที่อ่าน log ถูกสั่งการได้ผ่านข้อความที่ผู้โจมตีฝังไว้ใน log: <a href="https://arxiv.org/abs/2605.24421">Poisoning the Watchtower</a> (การป้องกันที่ดีที่สุดในระดับ prompt ลดความสำเร็จของการโจมตีจาก 26.6% เหลือ 11.8%) และ <a href="https://arxiv.org/abs/2607.14493">LogInject</a> (แบ่งคำสั่งไว้หลายบรรทัด log สำเร็จ 76.4%) ดังนั้น "LLM ถูกโจมตีผ่าน log ได้" <b>ไม่ใช่ของใหม่แล้ว</b></p>
   <p data-l="en">Two 2026 papers already show that an LLM reading logs can be steered by text an attacker plants in them: <a href="https://arxiv.org/abs/2605.24421">Poisoning the Watchtower</a> (the best prompt-level defence cut attack success from 26.6% to 11.8%) and <a href="https://arxiv.org/abs/2607.14493">LogInject</a> (splitting the instruction across log entries succeeded 76.4% of the time). So "an LLM can be attacked through logs" <b>is no longer new</b>.</p>
   <div class="note"><p data-l="th"><b>สิ่งที่เรามีส่วนใหม่:</b> guard แบบกำหนดตายตัว (deterministic) ที่ fail closed และกำหนด "ระดับความเสี่ยงขั้นต่ำ" จาก field ที่อุปกรณ์สร้างเอง จึงไม่ขึ้นกับว่าโมเดลหรือตัวตรวจจับจะถูกหลอกหรือไม่ ทดสอบด้วยการโจมตีภาษาไทย การโจมตีแบบ held-out field ของ FortiOS และโมเดลขนาดเล็กที่รันในองค์กร งานทั้งสองชิ้นข้างต้นไม่ได้ทดสอบสิ่งเหล่านี้</p>
-  <p data-l="en"><b>Our contribution:</b> a deterministic guard that fails closed and sets a minimum risk level from fields the device writes, so the result does not depend on whether the model or the detector is fooled. It is tested on Thai and held-out attacks, FortiOS fields and a small on-prem model. Neither paper tests these.</p></div>
+  <p data-l="en"><b>Our contribution:</b> a deterministic guard that fails closed and sets a minimum risk level from fields the device writes, so the result does not depend on whether the model or the detector is fooled. It is tested on Thai and held-out attacks, FortiOS fields and a small on-prem model. Neither paper tests these.</p>
+  <p data-l="th" style="margin-top:6px">หัวข้อวิจัย: <i>การประเมินการบังคับระดับความเสี่ยงแบบ deterministic จาก field ของอุปกรณ์ สำหรับการ triage log ของ FortiGate ด้วย LLM (ภาษาไทย, context-stitching, on-prem)</i></p>
+  <p data-l="en" style="margin-top:6px">Research framing: <i>an evaluation of deterministic, device-field-based risk enforcement for LLM-assisted FortiGate log triage (Thai, context-stitching, on-prem)</i>.</p></div>
 
   <h3 data-l="th">จุดตัดสินใจในสัปดาห์ที่ 1</h3>
   <h3 data-l="en">The week-1 decision gate</h3>
@@ -182,6 +184,19 @@ footer { color: var(--muted); font-size: 13px; padding-bottom: 32px; }
     <li>If the mentor prefers external cyber → switch to C (written scanning authorisation first).</li>
     <li>Otherwise → continue with A as planned.</li>
   </ul>
+
+  <h3 data-l="th">อยู่ตรงไหนเมื่อเทียบกับเครื่องมือที่มีอยู่</h3>
+  <h3 data-l="en">Where it sits next to existing tools</h3>
+  <p data-l="th">โปรเจกต์นี้<b>เสริม</b>เครื่องมือที่ ODT มีอยู่แล้ว ไม่ได้มาแทน SIEM หรือระบบจัดการ policy</p>
+  <p data-l="en">The project <b>complements</b> the tools ODT already has. It does not replace a SIEM or a policy manager.</p>
+  <div class="two">
+    <div class="card"><span class="eyebrow" data-l="th">มีอยู่แล้ว / ใช้ร่วม</span><span class="eyebrow" data-l="en">Existing / used alongside</span>
+      <ul data-l="th"><li><b>FortiAnalyzer, Wazuh</b>: เก็บ log, correlate, แจ้งเตือน</li><li><b>FortiManager</b>: จัดการ policy, หา policy ที่ไม่ใช้/ซ้ำ</li><li><b>Batfish</b> (open source, รองรับ FortiGate): ใช้ตรวจไขว้ผล shadowed rule ในสัปดาห์ 3–5</li><li><b>CISO Assistant</b> (open-source GRC): ติดตามหลักฐาน ISO 27001</li></ul>
+      <ul data-l="en"><li><b>FortiAnalyzer, Wazuh</b>: collect logs, correlate, alert</li><li><b>FortiManager</b>: policy management, unused/duplicate policies</li><li><b>Batfish</b> (open source, supports FortiGate): cross-check for shadowed rules in weeks 3–5</li><li><b>CISO Assistant</b> (open-source GRC): ISO 27001 evidence tracking</li></ul></div>
+    <div class="card"><span class="eyebrow" data-l="th">สิ่งที่โปรเจกต์นี้เพิ่ม</span><span class="eyebrow" data-l="en">What this project adds</span>
+      <ul data-l="th"><li>ตรวจ config แบบออฟไลน์ อ้างอิงเลขบรรทัด + หลักฐาน ISO ภาษาไทย/อังกฤษ</li><li>คำอธิบายภาษาไทยจาก LLM ภายในองค์กร</li><li>triage log ที่ผ่าน guard พร้อม audit log</li><li>อ่านอย่างเดียว คนเป็นผู้อนุมัติ</li></ul>
+      <ul data-l="en"><li>Offline config checks with line references + Thai/English ISO evidence</li><li>Thai explanations from an on-prem LLM</li><li>Guarded log triage with an audit log</li><li>Read-only; a person approves</li></ul></div>
+  </div>
 </section>
 
 <!-- 2 -->
@@ -235,6 +250,8 @@ fix:  config firewall policy
       end</pre>
   <p data-l="th">ทุก finding มี <b>เลขบรรทัด</b> <b>control ของ ISO</b> และ <b>คำสั่ง CLI ที่แนะนำ</b> ส่วนอื่นที่ตรวจ: กฎ any-any, การเปิดจาก WAN, admin ที่ไม่มี trusted host หรือ MFA, การจัดการผ่าน HTTP/Telnet, การส่ง log, NTP และ crypto ของ VPN</p>
   <p data-l="en">Every finding carries its <b>line number</b>, <b>ISO control</b> and a <b>suggested CLI fix</b>. Other checks: any-any rules, open inbound from WAN, admins without trusted hosts or MFA, HTTP/Telnet management, log forwarding, NTP and VPN crypto.</p>
+  <p data-l="th"><b>ถ้าตรวจไม่ครบ ต้องบอก (fail closed):</b> สิ่งที่โค้ดตรวจไม่ได้ถูกแสดงในหัวข้อ <i>Coverage</i> ได้แก่ ข้อผิดพลาดในการอ่านไฟล์, กฎที่ข้ามการตรวจ shadow (มี user, group, ISDB หรือ negate) พร้อมเลขบรรทัด, นโยบาย IPv6 และชื่อ address/service ที่ไม่มีการกำหนด ถ้ามีแม้แต่ข้อเดียว รายงานจะขึ้นต้นด้วย <b>INCOMPLETE ANALYSIS</b>, CLI คืนค่า exit 4 และขั้นสรุปด้วย LLM จะไม่ทำงาน รายงานที่ "สะอาด" จึงไม่มีทางมาจากการวิเคราะห์ที่ไม่ครบ</p>
+  <p data-l="en"><b>If coverage is incomplete, it says so (fail closed):</b> anything the code could not check is listed under <i>Coverage</i>: parse errors, rules skipped by the shadow analysis (users, groups, ISDB or negate) with their line numbers, IPv6 policies, and undefined address/service names. If there is even one, the report opens with <b>INCOMPLETE ANALYSIS</b>, the CLI exits 4, and the LLM summary step refuses to run. A "clean" report can't come from an incomplete analysis.</p>
   <div class="note"><p data-l="th"><b>ทำไมใช้โค้ด ไม่ใช้ LLM:</b> ผลลัพธ์เหมือนเดิมทุกครั้ง ทดสอบได้ ใช้เป็นหลักฐาน audit ได้ และรันได้ทันทีโดยไม่ต้องใช้ GPU LLM ขนาดเล็กที่เราทดสอบเคยบอกว่าเครือข่าย "ปลอดภัยในระดับสูง" ทั้งที่มีกฎ any-any อยู่</p>
   <p data-l="en"><b>Why code and not the LLM:</b> the same input always gives the same result, it can be tested and used as audit evidence, and it runs instantly with no GPU. A small LLM we tested once called the network "secure at a high level" despite an any-any rule.</p></div>
 </section>
@@ -266,8 +283,10 @@ msg="Administrator <span class="tok">USER_1</span> logged in successfully from h
       <ul data-l="th"><li>ตัดสินว่าอะไรเป็นปัญหา (โค้ดทำ)</li><li>บล็อกหรือเปลี่ยนกฎใด ๆ</li><li>ส่งข้อมูลออกนอกองค์กร</li></ul>
       <ul data-l="en"><li>Decide what is a problem (code does)</li><li>Block or change anything</li><li>Send data outside the organisation</li></ul></div>
   </div>
-  <p data-l="th"><b>รันที่ไหน:</b> โมเดล open-weight บน GPU server ของ KKU ผ่าน endpoint แบบ OpenAI-compatible (vLLM หรือ Ollama) ไม่ใช้ cloud (A.5.23) <b>Audit:</b> ทุกการเรียก LLM ถูกบันทึกลง <code>audit/llm-calls.jsonl</code> (สิทธิ์ไฟล์ 0600) พร้อม prompt ที่ mask แล้ว คำตอบ โมเดล เวลา และค่า SHA-256 (A.8.15)</p>
-  <p data-l="en"><b>Where it runs:</b> an open-weight model on KKU's GPU servers behind an OpenAI-compatible endpoint (vLLM or Ollama). No cloud (A.5.23). <b>Audit:</b> every LLM call is appended to <code>audit/llm-calls.jsonl</code> (file mode 0600) with the masked prompt, reply, model, timing and SHA-256 hashes (A.8.15).</p>
+  <p data-l="th"><b>รันที่ไหน:</b> โมเดล open-weight บน GPU server ของ KKU ผ่าน endpoint แบบ OpenAI-compatible (vLLM หรือ Ollama) ไม่ใช้ cloud (A.5.23) <b>บังคับด้วยโค้ด:</b> CLI ตรวจว่า endpoint ของ LLM อยู่ในเครือข่ายภายใน (loopback หรือ private range) และใช้ https ถ้าไม่ใช่ จะปฏิเสธก่อนส่งข้อมูลใด ๆ (exit 2) <b>Audit:</b> ทุกการเรียก LLM ถูกบันทึกลง <code>audit/llm-calls.jsonl</code> (สิทธิ์ไฟล์ 0600) พร้อม prompt ที่ mask แล้ว คำตอบ โมเดล เวลา และค่า SHA-256 (A.8.15)</p>
+  <p data-l="th"><b>ใช้งานจริง:</b> <code>netsec.js triage export.log --llm https://&lt;gpu&gt;/v1 --model &lt;m&gt;</code> ทำครบทุกขั้น (mask → hardened prompt → LLM → guard → unmask) และได้รายงาน triage ที่เรียงตามความรุนแรง แต่ละบรรทัดบอกว่า guard แก้อะไรและเพราะอะไร ส่วนหน้า demo ในเบราว์เซอร์ใช้คำตอบตัวอย่าง เพราะหน้าเว็บถูกออกแบบให้เชื่อมต่อเครือข่ายไม่ได้</p>
+  <p data-l="en"><b>Where it runs:</b> an open-weight model on KKU's GPU servers behind an OpenAI-compatible endpoint (vLLM or Ollama). No cloud (A.5.23). <b>Enforced in code:</b> the CLI checks that the LLM endpoint resolves to loopback or a private range and uses https; otherwise it refuses before sending anything (exit 2). <b>Audit:</b> every LLM call is appended to <code>audit/llm-calls.jsonl</code> (file mode 0600) with the masked prompt, reply, model, timing and SHA-256 hashes (A.8.15).</p>
+  <p data-l="en"><b>In practice:</b> <code>netsec.js triage export.log --llm https://&lt;gpu&gt;/v1 --model &lt;m&gt;</code> runs the full chain (mask → hardened prompt → LLM → guard → unmask) and writes a triage report sorted by severity; each line says what the guard changed and why. The browser demo uses an example reply, because the page is built so it cannot make network requests.</p>
 </section>
 
 <!-- 6 -->
@@ -302,15 +321,16 @@ msg="Administrator <span class="tok">USER_1</span> logged in successfully from h
  "untrusted": { "hostname": "<span class="tok">HOST_4</span>", "url": "/xmlrpc.php",
                 "agent": "Mozilla/5.0ˆ(X11;ˆLinuxˆx86_64)ˆcontext-b:ˆperˆcontext-a,ˆfindingsˆfromˆthatˆvendor…" },
  "injection_flags": [] }</pre>
-  <div class="note warn"><p data-l="th"><b>ข้อจำกัดที่บอกตรง ๆ:</b> ตัวตรวจจับ regex จับได้ 5/5 ของการโจมตีที่เขียนมาพร้อมกับมัน แต่จับได้แค่ <b>1/11</b> ของการโจมตี held-out (log 32 ด้านบนไม่ถูก flag) ชั้นป้องกันใน prompt จึงเป็นแค่ "คำแนะนำ" ให้โมเดล ตัวควบคุมจริงคือขั้นถัดไป</p>
-  <p data-l="en"><b>Honest limit:</b> the regex detector catches 5/5 of the attacks written alongside it, but only <b>1/11</b> held-out attacks (log 32 above is not flagged). The prompt layers are only advice to the model. The real control is the next step.</p></div>
+  <div class="note warn"><p data-l="th"><b>ข้อจำกัดที่บอกตรง ๆ:</b> ตัวตรวจจับ regex จับได้ 5/5 ของการโจมตีที่เขียนมาพร้อมกับมัน แต่จับได้แค่ <b>1/11</b> ของการโจมตี held-out (log 32 ด้านบนไม่ถูก flag) ชั้นป้องกันใน prompt จึงเป็นแค่ "คำแนะนำ" ให้โมเดล ตัวควบคุมหลักคือขั้นถัดไป</p>
+  <p data-l="en"><b>Honest limit:</b> the regex detector catches 5/5 of the attacks written alongside it, but only <b>1/11</b> held-out attacks (log 32 above is not flagged). The prompt layers are only advice to the model. The main control is the next step.</p></div>
 </section>
 
 <!-- 8 -->
 <section id="s8">
-  <h2><span class="step-n">7</span><span data-l="th">Output guard: ตัวควบคุมจริง</span><span data-l="en">Output guard: the real control</span></h2>
+  <h2><span class="step-n">7</span><span data-l="th">Output guard: ตัวควบคุมหลัก</span><span data-l="en">Output guard: the main control</span></h2>
   <p data-l="th">ทุกคำตอบของ LLM ผ่านโค้ดนี้ก่อนถึงคน กฎทำงานตามลำดับ และถ้าไม่แน่ใจจะเลือกทางที่ปลอดภัยเสมอ (fail closed):</p>
   <p data-l="en">Every LLM answer passes through this code before a person sees it. The rules run in order, and when in doubt they pick the safe side (fail closed):</p>
+  <div class="note warn"><p data-l="th"><b>สถานะ:</b> guard เป็นมาตรการเชิงทดลอง ยังไม่ได้พิสูจน์กับ traffic จริงหรือการรันซ้ำหลายรอบ ห้ามอ้างว่า "ป้องกัน prompt injection ได้" จนกว่าจะผ่านการทดสอบในสัปดาห์ 11–15</p><p data-l="en"><b>Status:</b> the guard is an experimental mitigation, not yet validated on real traffic or with repeated runs. Don't claim it "prevents prompt injection" until weeks 11–15 have tested it.</p></div>
   <ol class="rules">
     <li><span data-l="th"><b>ค่าที่อนุญาตเป็นชุดปิด</b> class: malicious/suspicious/benign/unknown; action: block_ip/investigate/monitor/none ไม่มี "allow" ค่าอื่นจะถูกแทนด้วย unknown/investigate</span><span data-l="en"><b>Closed value sets.</b> class: malicious/suspicious/benign/unknown; action: block_ip/investigate/monitor/none. There is no "allow"; any other value becomes unknown/investigate.</span></li>
     <li><span data-l="th"><b>Confidence ถูกบีบให้อยู่ใน 0–1</b></span><span data-l="en"><b>Confidence clamped to 0–1.</b></span></li>
@@ -379,28 +399,38 @@ msg="Administrator <span class="tok">USER_1</span> logged in successfully from h
 <section id="s11">
   <h2 data-l="th">11. แผน 16 สัปดาห์ ทีละขั้น</h2>
   <h2 data-l="en">11. The 16-week plan, step by step</h2>
+  <p data-l="th">ตรวจ config ให้ผ่านก่อน แล้วจึงต่อกับ log เพื่อไม่ให้กลายเป็นโปรเจกต์ที่ทำไม่เสร็จห้าโปรเจกต์</p>
+  <p data-l="en">Config work is validated before log integration, so the project doesn't turn into five unfinished ones.</p>
   <div class="table"><table>
     <thead><tr><th data-l="th">สัปดาห์</th><th data-l="en">Weeks</th><th data-l="th">เป้าหมาย / Mon ทำอะไร</th><th data-l="en">Goal / what Mon does</th><th data-l="th">ODT ให้อะไร</th><th data-l="en">ODT provides</th><th data-l="th">เสร็จเมื่อ</th><th data-l="en">Done when</th></tr></thead>
     <tbody>
       <tr><td class="n">1–2</td>
-        <td><span data-l="th">ประเมินความเสี่ยงของ LLM (ISO 27001 ข้อ 6.1.2 + OWASP LLM Top 10), แผนภาพ data flow, baseline; <b>ตัดสินใจ A/C/E</b></span><span data-l="en">LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10), data-flow diagram, baselines; <b>decide A/C/E</b></span></td>
+        <td><span data-l="th">ตัดสินใจ: ODT ใช้ FortiManager/FortiAnalyzer ตรวจ policy อยู่แล้วหรือไม่, สิทธิ์ใช้ข้อมูล, GPU; ประเมินความเสี่ยงของ LLM (ISO 27001 ข้อ 6.1.2 + OWASP LLM Top 10)</span><span data-l="en">Gate: is FortiManager/FortiAnalyzer policy analysis in use, data permissions, GPU access; LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10)</span></td>
         <td><span data-l="th">เอกสาร, สัมภาษณ์</span><span data-l="en">documents, interviews</span></td>
-        <td><span data-l="th">พี่เลี้ยงอนุมัติ risk assessment และขอบเขต</span><span data-l="en">mentor signs off the risk assessment and scope</span></td></tr>
-      <tr><td class="n">3–6</td>
-        <td><span data-l="th">รันการตรวจกับ backup จริงที่ sanitise แล้ว, ชุดหลักฐาน audit, เพิ่ม hit count เพื่อหากฎที่ไม่ได้ใช้</span><span data-l="en">Run the review on real sanitised backups, audit evidence pack, add hit counts to find unused rules</span></td>
+        <td><span data-l="th">พี่เลี้ยงเลือก A/C/E และอนุมัติขอบเขต</span><span data-l="en">mentor picks A/C/E and signs off the scope</span></td></tr>
+      <tr><td class="n">3–5</td>
+        <td><span data-l="th">ทดสอบ parser และการตรวจกับ backup จริงที่ sanitise แล้ว, ตรวจไขว้ shadowed rule กับ Batfish</span><span data-l="en">Validate the parser and checks on real sanitised backups; cross-check shadowed rules against Batfish</span></td>
         <td><span data-l="th">backup 1 ชุด</span><span data-l="en">one backup</span></td>
-        <td><span data-l="th">เจ้าหน้าที่ยืนยัน finding; นับกฎเสี่ยงที่พบและที่ลบ</span><span data-l="en">staff confirm findings; risky rules found and removed are counted</span></td></tr>
-      <tr><td class="n">7–11</td>
-        <td><span data-l="th"><i>ทางเลือก</i>: ticket ภาษาไทย → เรียก API แบบอ่านอย่างเดียว (NCE/CampusInsight, Zabbix, FortiAnalyzer) → ร่าง triage พร้อมแหล่งอ้างอิง</span><span data-l="en"><i>Optional</i>: Thai ticket → read-only API calls (NCE/CampusInsight, Zabbix, FortiAnalyzer) → cited triage draft</span></td>
-        <td><span data-l="th">บัญชี API แบบอ่านอย่างเดียว</span><span data-l="en">read-only API accounts</span></td>
-        <td><span data-l="th">วัดเวลาจาก ticket ถึง triage ก่อน/หลัง</span><span data-l="en">ticket-to-triage time measured before/after</span></td></tr>
-      <tr><td class="n">12–14</td>
-        <td><span data-l="th">Red-team ด้วย traffic แบบ KKU, เปรียบเทียบโมเดล (รวม Typhoon 2) บน GPU, ablation ครบ 4 โหมด หลายรอบ</span><span data-l="en">Red-team on KKU-like traffic, compare models (incl. Typhoon 2) on the GPUs, full 4-mode ablation with several runs</span></td>
-        <td><span data-l="th">สำเนา log ใน lab, เวลา GPU</span><span data-l="en">lab copy of logs, GPU time</span></td>
-        <td><span data-l="th">ได้ตารางผลที่ทำซ้ำได้</span><span data-l="en">a reproducible results table</span></td></tr>
-      <tr><td class="n">15–16</td>
+        <td><span data-l="th">Coverage ครบ หรือทุกช่องว่างมีเหตุผล; เจ้าหน้าที่ยืนยัน finding</span><span data-l="en">coverage complete or every gap explained; staff confirm findings</span></td></tr>
+      <tr><td class="n">6–7</td>
+        <td><span data-l="th">รายงานหลักฐาน ISO สำหรับ surveillance audit</span><span data-l="en">ISO evidence report for the surveillance audit</span></td>
+        <td><span data-l="th">รายการ control ที่ใช้แรงงานมาก</span><span data-l="en">which controls cost the most</span></td>
+        <td><span data-l="th">ทีม ISMS ยอมรับรูปแบบรายงาน</span><span data-l="en">the ISMS team accepts the report format</span></td></tr>
+      <tr><td class="n">8–10</td>
+        <td><span data-l="th"><code>triage</code> กับ log export จริง; ทางเลือก: นำเข้าแบบอ่านอย่างเดียวจาก Wazuh หรือ FortiAnalyzer</span><span data-l="en"><code>triage</code> on real log exports; optional read-only import from Wazuh or FortiAnalyzer</span></td>
+        <td><span data-l="th">log export, (บัญชี API ถ้ามี)</span><span data-l="en">log export, (API account if any)</span></td>
+        <td><span data-l="th">วัดเวลาจาก alert ถึง triage ก่อน/หลัง</span><span data-l="en">alert-to-triage time measured before/after</span></td></tr>
+      <tr><td class="n">11–13</td>
+        <td><span data-l="th">วิจัย injection หลายโมเดล หลายรอบ บน GPU (ภาษาไทย, context-stitching, DNS)</span><span data-l="en">Multi-model, multi-run injection research on the GPUs (Thai, context-stitching, DNS)</span></td>
+        <td><span data-l="th">เวลา GPU</span><span data-l="en">GPU time</span></td>
+        <td><span data-l="th">ตารางผลที่ทำซ้ำได้ พร้อมช่วงความเชื่อมั่น</span><span data-l="en">a reproducible results table with confidence intervals</span></td></tr>
+      <tr><td class="n">14–15</td>
+        <td><span data-l="th">ประเมินประสิทธิภาพ ความเป็นส่วนตัว และ false positive</span><span data-l="en">Performance, privacy and false-positive evaluation</span></td>
+        <td><span data-l="th">สำเนา log ใน lab</span><span data-l="en">lab copy of logs</span></td>
+        <td><span data-l="th">เวลาตอบสนองบน GPU และอัตรา false positive ที่วัดได้</span><span data-l="en">measured GPU latency and false-positive rate</span></td></tr>
+      <tr><td class="n">16</td>
         <td><span data-l="th">ส่งมอบ: runbook, source code, ผลก่อน/หลัง, ร่างบทความ (เช่น ECTI-CIT)</span><span data-l="en">Handover: runbook, source code, before/after metrics, draft paper (e.g. ECTI-CIT)</span></td>
-        <td>—</td>
+        <td><span data-l="th">—</span><span data-l="en">—</span></td>
         <td><span data-l="th">ทีม ODT รันเองได้โดยไม่มี Mon</span><span data-l="en">the ODT team can run it without Mon</span></td></tr>
     </tbody>
   </table></div>
@@ -414,7 +444,7 @@ msg="Administrator <span class="tok">USER_1</span> logged in successfully from h
     <li><span data-l="th"><b>backup FortiGate ที่ sanitise แล้ว (หรือ 1 VDOM) และ log export 1 วัน?</b> ถ้าไม่ได้ → เปลี่ยนเป็นทางเลือก E</span><span data-l="en"><b>A sanitised FortiGate backup (or one VDOM) and a one-day log export?</b> If not → switch to option E.</span></li>
     <li><span data-l="th"><b>ใช้ระบบ serving แบบไหน (vLLM/Ollama) และอนุญาตโมเดลใดบน GPU?</b> เป็นตัวกำหนดคุณภาพภาษาไทยและใบอนุญาต (license)</span><span data-l="en"><b>Which serving (vLLM/Ollama) and which models are allowed on the GPUs?</b> This sets Thai quality and licensing.</span></li>
     <li><span data-l="th"><b>control ใน Annex A ข้อไหนใช้แรงงานมากที่สุดตอน audit และ audit เมื่อไร?</b> เป็นตัวกำหนดลำดับความสำคัญของชุดหลักฐาน</span><span data-l="en"><b>Which Annex A controls cost the most audit work, and when is the audit?</b> This sets the evidence-pack priorities.</span></li>
-    <li><span data-l="th"><b>บัญชี API แบบอ่านอย่างเดียวที่ขอได้จริง: NCE, Zabbix, FortiAnalyzer?</b> ถ้าไม่ได้ → ข้ามสัปดาห์ 7–11</span><span data-l="en"><b>Which read-only API accounts are realistic: NCE, Zabbix, FortiAnalyzer?</b> If none → skip weeks 7–11.</span></li>
+    <li><span data-l="th"><b>บัญชี API แบบอ่านอย่างเดียวที่ขอได้จริง: NCE, Zabbix, FortiAnalyzer?</b> ถ้าไม่ได้ → สัปดาห์ 8–10 ใช้ไฟล์ log export แทน API</span><span data-l="en"><b>Which read-only API accounts are realistic: NCE, Zabbix, FortiAnalyzer?</b> If none → weeks 8–10 use log export files instead of APIs.</span></li>
     <li><span data-l="th"><b>"Garud" และ "Security Scoreboard" คืออะไร และควรขยับตัวชี้วัดไหน?</b> เพื่อผูกโปรเจกต์กับตัวชี้วัดที่ ODT ใช้อยู่แล้ว</span><span data-l="en"><b>What are "Garud" and the "Security Scoreboard", and which metric should move?</b> This ties the project to a metric ODT already uses.</span></li>
     <li><span data-l="th"><b>ใช้ FortiManager ตรวจ policy อยู่แล้วหรือไม่ และอยากให้เน้นทางเลือกไหน (A / E / C)?</b> คำตอบนี้คือจุดตัดสินใจสัปดาห์ที่ 1</span><span data-l="en"><b>Is FortiManager policy analysis already in use, and which focus do you prefer (A / E / C)?</b> This answer is the week-1 gate.</span></li>
   </ol>

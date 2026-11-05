@@ -104,7 +104,16 @@
   function renderSummary() {
     const m = result.meta;
     const tiles = N.SEV.map((s) => `<button class="sev-tile c-${s}${result.counts[s] ? '' : ' zero'}" data-sev="${s}" aria-pressed="${sevFilter === s}"><b>${result.counts[s]}</b><span>${SEV_LABEL[s]}</span></button>`).join('');
-    const parseNote = m.parseErrors.length ? `<p class="note" style="color: var(--high)">${m.parseErrors.length} parse warning(s), first: line ${m.parseErrors[0].line}: ${esc(m.parseErrors[0].msg)}</p>` : '';
+    const cv = result.coverage;
+    const covItems = [
+      ...cv.parseErrors.map((e) => `parse error, line ${e.line}: ${esc(e.msg)}`),
+      ...cv.shadowSkipped.map((x) => `${esc(x.label)} (line ${x.line}) skipped by shadow analysis: ${esc(x.reason)}`),
+      ...(cv.ipv6Policies ? [`${cv.ipv6Policies} IPv6 polic${cv.ipv6Policies === 1 ? 'y' : 'ies'} not analysed`] : []),
+      ...cv.unresolved.map((x) => `undefined name: ${esc(x)}`),
+    ];
+    const parseNote = cv.complete
+      ? '<p class="note" style="color: var(--ok)">Coverage: complete. Every statement parsed and every enabled rule was checked.</p>'
+      : `<div class="note" style="color: var(--high)"><b>INCOMPLETE ANALYSIS: ${cv.gaps} item(s) not checked.</b> A clean result here does not mean the configuration is clean.<ul style="margin: 6px 0 0; padding-left: 1.2em;">${covItems.slice(0, 12).map((x) => `<li>${x}</li>`).join('')}${covItems.length > 12 ? `<li>… ${covItems.length - 12} more (see the report)</li>` : ''}</ul></div>`;
     $('summary').innerHTML = `
       <div class="row" style="justify-content: space-between;"><h2>Summary</h2><span class="eyebrow">${result.ms.toFixed(0)} ms · ${m.statements} statements</span></div>
       <div class="sev-row" role="group" aria-label="Filter by severity">${tiles}</div>
