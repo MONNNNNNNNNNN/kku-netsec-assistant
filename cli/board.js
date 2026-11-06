@@ -11,6 +11,7 @@
  *   node cli/board.js check                                 config, connectivity, on-prem class of every endpoint
  *   node cli/board.js test-notify <channel-name>
  *   node cli/board.js audit-export [--since 2026-11-01]     LLM audit trail as JSON lines (masked prompts only)
+ *   node cli/board.js backup <file.db>                      consistent copy of the database while the board runs
  * --config defaults to $NETSEC_CONFIG or ./netsec.json. Exit codes: 0 ok, 1 check found errors, 2 usage.
  */
 const fs = require('node:fs');
@@ -102,6 +103,20 @@ async function main() {
     const db = db_.openDb(cfg.dataDir);
     await new Notifier({ db, cfg }).test(sub);
     console.log(`sent a test message to ${sub}`);
+    return;
+  }
+
+  if (cmd === 'backup') {
+    // VACUUM INTO writes a consistent, compact copy even while the board writes (WAL): copying
+    // board.db with cp can miss the -wal file and give a torn copy
+    if (!sub) die('usage: backup <file.db>');
+    const out = path.resolve(sub);
+    if (fs.existsSync(out)) die(`${out} exists; choose a new file name`);
+    const db = db_.openDb(cfg.dataDir);
+    const umask = process.umask(0o077);
+    try { db.prepare('VACUUM INTO ?').run(out); } finally { process.umask(umask); }
+    fs.chmodSync(out, 0o600);
+    console.log(`backup written: ${out} (${fs.statSync(out).size} bytes, mode 600; it holds personal data)`);
     return;
   }
 

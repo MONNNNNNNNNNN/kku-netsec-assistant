@@ -18,7 +18,7 @@ function finalSeverity(det, guarded) {
   return maxSev(det, llm);
 }
 
-const MAX_FLAGS = 20, MAX_SAMPLES = 5;
+const MAX_FLAGS = 20, MAX_SAMPLES = 5, BURST_KEYS = 200, BURST_SET = 20000;
 const union = (a, b, max) => [...new Set([...(a || []), ...(b || [])])].slice(0, max);
 /**
  * Up to MAX_SAMPLES distinct untrusted-field sets per card. The first is always kept; when
@@ -61,7 +61,10 @@ class Pipeline extends EventEmitter {
     this.byId = db.prepare('SELECT * FROM items WHERE id = ?');
     // new cards per source in the last minute (a distributed scan must not become 10,000 cards)
     this.newCards = new Map();
-    this.burstSeen = new Map(); // burst fingerprint -> Set of folded fingerprints (distinct count)
+    // burst fingerprint -> Set of folded fingerprints, to count distinct sources. Bounded: at most
+    // BURST_KEYS bursts (least recently used dropped) of BURST_SET entries each; the count itself
+    // lives in the card (trusted.distinct), so a restart or a dropped set only loses dedupe memory
+    this.burstSeen = new Map();
   }
 
   /** True when `source` already opened its budget of new cards in the last minute. */
@@ -75,10 +78,16 @@ class Pipeline extends EventEmitter {
 
   /** Rewrite an event into its source's burst card (keeps the event as evidence). */
   toBurst(e) {
-    let seen = this.burstSeen.get(e.burstFingerprint);
-    if (!seen) { seen = new Set(); this.burstSeen.set(e.burstFingerprint, seen); }
-    if (seen.size < 100000) seen.add(e.fingerprint);
-    return { ...e, fingerprint: e.burstFingerprint, burstFingerprint: null, title: `${e.kind}: burst of distinct events`, trusted: { ...e.trusted, burst: 'true', distinct: String(seen.size) } };
+    const key = e.burstFingerprint;
+    let seen = this.burstSeen.get(key);
+    if (seen) this.burstSeen.delete(key); else seen = new Set();
+    this.burstSeen.set(key, seen); // most recently used last
+    while (this.burstSeen.size > BURST_KEYS) this.burstSeen.delete(this.burstSeen.keys().next().value);
+    const row = this.sel.get(key);
+    const prev = row ? Number(JSON.parse(row.trusted).distinct) || 0 : 0;
+    const fresh = !seen.has(e.fingerprint);
+    if (fresh && seen.size < BURST_SET) seen.add(e.fingerprint);
+    return { ...e, fingerprint: key, burstFingerprint: null, title: `${e.kind}: burst of distinct events`, trusted: { ...e.trusted, burst: 'true', distinct: String(prev + (fresh ? 1 : 0)) } };
   }
 
   minSeverity(source) {

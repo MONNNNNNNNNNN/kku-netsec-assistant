@@ -725,3 +725,49 @@ test('E3: a burst of new cards in one flush respects the channel rate limit and 
     assert.equal(sinks.requests.filter((r) => r.url.startsWith('/tg/')).length, 3, 'daily cap held');
   } finally { await app.close(); sinks.server.close(); }
 });
+
+// ---------------------------------------------------------------- 50-pass review (C5, C6)
+
+test('C5: the burst dedupe memory is bounded and the distinct count survives a restart', async () => {
+  const dataDir = tmp();
+  let { app } = await startBoard({ dataDir, board: { newCardsPerMinute: 1 } });
+  const N = require('../../src/core.js');
+  const line = (i) => LOGS[1].replace(/srcip=\S+/, `srcip=198.18.0.${i}`);
+  try {
+    for (let i = 1; i <= 4; i++) app.pipeline.ingest(T.fortigate(N.parseFortiLog(line(i)), Date.now()), 'syslog');
+    app.pipeline.ingest(T.fortigate(N.parseFortiLog(line(2)), Date.now()), 'syslog'); // a repeat source
+    app.pipeline.flush();
+    const burst = () => app.db.prepare("SELECT count, trusted FROM items WHERE trusted LIKE '%\"burst\":\"true\"%'").get();
+    assert.deepEqual([burst().count, JSON.parse(burst().trusted).distinct], [4, '3'], '4 events, 3 distinct sources');
+  } finally { await app.close(); }
+  ({ app } = await startBoard({ dataDir, board: { newCardsPerMinute: 1 } }, { users: false }));
+  try {
+    app.pipeline.ingest(T.fortigate(N.parseFortiLog(line(8)), Date.now()), 'syslog'); // a new card: the budget (per source) is used
+    app.pipeline.ingest(T.fortigate(N.parseFortiLog(line(9)), Date.now()), 'syslog');
+    app.pipeline.flush();
+    const b = app.db.prepare("SELECT trusted FROM items WHERE trusted LIKE '%\"burst\":\"true\"%'").get();
+    assert.equal(JSON.parse(b.trusted).distinct, '4', 'continues from the stored count after a restart');
+    for (let k = 0; k < 400; k++) app.pipeline.toBurst({ fingerprint: `f${k}`, burstFingerprint: `b${k}`, kind: 'x', trusted: {} });
+    assert.ok(app.pipeline.burstSeen.size <= 200, `bounded: ${app.pipeline.burstSeen.size}`);
+  } finally { await app.close(); }
+});
+
+test('C6: backup writes a consistent 0600 copy while the board runs', async () => {
+  const dir = tmp();
+  const cfgFile = path.join(dir, 'netsec.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: './data' }));
+  const app = await mkApp(loadCfg(cfgFile), { listen: false, jitter: false, runOnStart: false, log: () => {} });
+  try {
+    for (let i = 0; i < 50; i++) app.pipeline.ingest(T.generic({ title: `t${i}`, severity: 'low', key: `k${i}` }), 'generic');
+    app.pipeline.flush();
+    const out = path.join(dir, 'copy.db');
+    const r = await runCli(['backup', out, '--config', cfgFile]);
+    assert.equal(r.err, null, r.stderr);
+    assert.equal(fs.statSync(out).mode & 0o777, 0o600);
+    const { DatabaseSync } = require('node:sqlite');
+    const copy = new DatabaseSync(out, { readOnly: true });
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM items').get().n, 50);
+    copy.close();
+    assert.match((await runCli(['backup', out, '--config', cfgFile])).stderr, /exists/, 'never overwrites');
+  } finally { await app.close(); }
+});
