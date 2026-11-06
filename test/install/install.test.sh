@@ -41,6 +41,10 @@ echo "node re-run kept secrets and data"
 IN
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/src:ro" -v "$WORK/node.sh:/t.sh:ro" -v "$WORK/login.js:/login.js:ro" node:22.13-bookworm-slim sh /t.sh
 
+echo "== refuses an install folder with spaces"
+if sh "$ROOT/install.sh" --node --non-interactive --dir "$WORK/with space" > "$WORK/space.log" 2>&1; then echo "accepted a folder with spaces"; exit 1; fi
+grep -q "cannot contain spaces" "$WORK/space.log"
+
 echo "== Docker mode (local image)"
 docker build -q -t netsec-board-local:latest "$ROOT" >/dev/null
 mkdir -p "$WORK/docker"

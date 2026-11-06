@@ -87,6 +87,7 @@ if [ -z "$VERSION" ]; then
   [ -n "$VERSION" ] || VERSION=main
 fi
 
+case "$DIR" in *[[:space:]]*) die "the install folder cannot contain spaces (systemd and compose paths): $DIR" ;; esac
 mkdir -p "$DIR"
 DIR=$(cd "$DIR" && pwd)
 SRC=""   # a clone, when run as ./install.sh (under `curl | sh`, $0 is the shell)
@@ -195,8 +196,12 @@ else
   if [ "$IS_ROOT" = 1 ] && have systemctl && [ -d /run/systemd/system ]; then
     step "systemd service"
     id netsec >/dev/null 2>&1 || useradd --system --home "$DIR/data" --shell /usr/sbin/nologin netsec
-    # the service user must be able to run node (nvm installs under a 0700 home do not work)
-    su -s /bin/sh netsec -c "\"$NODE_BIN\" -v" >/dev/null 2>&1 || die "user netsec cannot run $NODE_BIN (inside a private home?). Install Node system-wide (NodeSource), then re-run."
+    # the service sandbox (ProtectHome=yes) hides /home and /root, so an nvm node there cannot start,
+    # even when the netsec user could run it outside the sandbox
+    case "$(readlink -f "$NODE_BIN")" in
+      /home/*|/root/*) die "node is inside a home folder ($NODE_BIN), which the service sandbox hides. Install Node system-wide: curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs, then re-run." ;;
+    esac
+    su -s /bin/sh netsec -c "\"$NODE_BIN\" -v" >/dev/null 2>&1 || die "user netsec cannot run $NODE_BIN. Install Node system-wide (NodeSource), then re-run."
     chown -R netsec:netsec "$DIR/data"; chmod 700 "$DIR/data"
     chown root:netsec "$DIR/netsec.json"; chmod 640 "$DIR/netsec.json"
     chown root:root "$DIR/secrets.env"; chmod 600 "$DIR/secrets.env"   # read by systemd (EnvironmentFile), not by node
