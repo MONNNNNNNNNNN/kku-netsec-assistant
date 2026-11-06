@@ -2,6 +2,7 @@
 'use strict';
 /*
  * NetSec Board admin CLI.
+ *   node cli/board.js setup [--config netsec.json] [--non-interactive]   wizard: sources, secrets, admin (install.sh runs it)
  *   node cli/board.js init [--config netsec.json]          first run: config file + admin user (password printed once)
  *   node cli/board.js user add <name> [--role viewer|operator|admin] [--password-file f]
  *   node cli/board.js user passwd <name> [--password-file f]
@@ -34,6 +35,16 @@ const readPw = () => (o['password-file'] ? fs.readFileSync(o['password-file'], '
 
 async function main() {
   const [cmd, sub, name] = o._;
+  if (cmd === 'setup') {
+    const { setup } = require('./setup.js');
+    // under `curl | sh` stdin is the script: read answers from the terminal instead (--stdin: piped answers)
+    const tty = !o['non-interactive'] && !o.stdin && !process.stdin.isTTY && fs.existsSync('/dev/tty') ? (() => { try { return fs.createReadStream(null, { fd: fs.openSync('/dev/tty', 'r') }); } catch { return null; } })() : null;
+    if (!o['non-interactive'] && !process.stdin.isTTY && !tty && !o.stdin) die('setup needs a terminal: run it in a shell, or pass --non-interactive with NETSEC_SETUP_* variables');
+    const r = await setup({ cfgFile, nonInteractive: !!o['non-interactive'], input: tty || process.stdin, adminPasswordFile: o['admin-password-file'], composeEnv: !!o['compose-env'], docker: !!o.docker });
+    if (tty) tty.destroy();
+    if (r.failed.length && process.env.NETSEC_SETUP_STRICT === '1') process.exit(1);
+    return;
+  }
   if (cmd === 'init') {
     if (!fs.existsSync(cfgFile)) {
       fs.copyFileSync(path.join(__dirname, '..', 'netsec.example.json'), cfgFile);
@@ -42,6 +53,7 @@ async function main() {
     } else console.log(`${cfgFile} exists, kept`);
     const { cfg } = loadConfig(cfgFile);
     const db = db_.openDb(cfg.dataDir);
+    if (A.bootstrapAdmin(db)) console.log('created the admin from secrets.env');
     const n = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
     if (!n) {
       const pw = readPw() || A.randomPassword();
@@ -106,7 +118,7 @@ async function main() {
   die('usage: board.js init|user|pull|check|test-notify|audit-export (see the header of cli/board.js)');
 }
 
-async function check({ cfg, raw }) {
+async function check({ cfg, raw, secretsWarning }) {
   const LLM = require('../server/llm.js');
   const PULL = require('../server/collectors/pull.js');
   const { request } = require('../server/net.js');
@@ -130,7 +142,11 @@ async function check({ cfg, raw }) {
   if (cfg.trustProxy === true) ok('trustProxy: X-Forwarded-For is honoured only from 127.0.0.1/::1 (list the proxy addresses if the proxy runs elsewhere)');
   const db = db_.openDb(cfg.dataDir);
   ok(`database ${db.file} (mode ${(fs.statSync(db.file).mode & 0o777).toString(8)}, retention ${cfg.retentionDays} days)`);
-  if (!db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n) err('no admin user: run "init"');
+  if (secretsWarning) warn(secretsWarning);
+  if (!db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n) {
+    if (process.env.NETSEC_ADMIN_HASH) ok(`admin "${process.env.NETSEC_ADMIN_USER || 'admin'}" is created on the board's first start (secrets.env)`);
+    else err('no admin user: run "setup" or "init"');
+  }
 
   console.log('sources');
   const s = cfg.sources;

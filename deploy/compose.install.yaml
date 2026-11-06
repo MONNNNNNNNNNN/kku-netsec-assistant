@@ -1,0 +1,36 @@
+# NetSec Board, as installed by install.sh (Docker mode). Prebuilt image, no build step.
+# Files next to this one: netsec.json (setup wizard), secrets.env (0600), .env (BOARD_BIND,
+# BOARD_PORT, SYSLOG_BIND, NETSEC_VERSION), backups/ (FortiGate config backups, read-only).
+#   update:  docker compose pull && docker compose up -d      (or re-run install.sh)
+#   logs:    docker compose logs -f board
+name: netsec-board
+
+services:
+  board:
+    image: ${NETSEC_IMAGE:-ghcr.io/monnnnnnnnnnnn/netsec-board}:${NETSEC_VERSION:-latest}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    env_file:
+      - path: secrets.env      # env:NETSEC_* secrets and the first-start admin hash
+        required: false
+    environment:               # container paths win over netsec.json
+      NETSEC_LISTEN_HOST: 0.0.0.0
+      NETSEC_LISTEN_PORT: "8480"
+      NETSEC_DATA_DIR: /data
+      NETSEC_BACKUP_DIR: /backups
+      NETSEC_SYSLOG_BIND: 0.0.0.0
+      NETSEC_TRUST_PROXY: ${NETSEC_TRUST_PROXY:-172.16.0.0/12}
+    volumes:
+      - ./netsec.json:/config/netsec.json:ro
+      - board-data:/data
+      - ./backups:/backups:ro
+    ports:
+      - "${BOARD_BIND:-127.0.0.1}:${BOARD_PORT:-8480}:8480"
+      - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/tcp"
+      - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/udp"
+
+volumes:
+  board-data:

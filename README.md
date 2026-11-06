@@ -1,4 +1,4 @@
-# NetSec Assistant + NetSec Board (prototype v0.4)
+# NetSec Assistant + NetSec Board (prototype v0.5)
 
 **Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
 
@@ -8,7 +8,7 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
 
 **Idea in one line:** deterministic code finds the problems and cites config lines. A local LLM explains them in Thai and English and helps triage logs. Every LLM output goes through a guard so attacker text in the logs can't steer it.
 
-## NetSec Board: live monitoring board (v0.4)
+## NetSec Board: live monitoring board (v0.5)
 
 ![NetSec Board, light theme](docs/screenshots/board-light.png)
 
@@ -21,13 +21,20 @@ docker compose --profile demo up -d --build      # or, without Docker: npm run d
 ```
 The demo lab plays a FortiGate, a Wazuh indexer, Zabbix, notification sinks, an adversarial LLM and a spoofing host.
 
-**Install for real (Node ≥ 22.13, no `npm install` needed):**
+**Install (one command, about a minute):**
 ```bash
-node cli/board.js init                      # writes netsec.json from the example + an admin user (password shown once)
-nano netsec.json                            # enable sources; secrets as env:NAME or file:/path
+curl -fsSL https://raw.githubusercontent.com/MONNNNNNNNNNN/kku-netsec-assistant/main/install.sh | sh
+```
+It uses Docker Compose if the machine has it (prebuilt `ghcr.io/monnnnnnnnnnnn/netsec-board` image, amd64/arm64), otherwise Node ≥ 22.13 (no `npm install`: zero runtime dependencies) with a systemd service when run as root. A short wizard asks for the FortiGate sender IP, the Wazuh indexer URL and user, the Zabbix URL and API token, a config-backup folder, one notification channel and an optional local LLM; **it tests each answer against the real system** (Zabbix: including a web server that strips the Authorization header) and sends a test notification. It writes `netsec.json` (secrets only as `env:` references) and `secrets.env` (mode 600), prints the board URL and the admin password once, and prints the FortiGate syslog lines to paste. Re-running the installer upgrades and keeps the config and data. Options: `--docker`/`--node`, `--dir`, `--version v0.5.0`, and `--non-interactive` with `NETSEC_SETUP_*` variables for scripted installs (list in `cli/setup.js`).
+
+<details><summary>Manual install (from a clone)</summary>
+
+```bash
+node cli/board.js setup                      # the same wizard: writes netsec.json + secrets.env (loaded automatically)
 node cli/board.js check && node server/main.js   # connectivity check, then start; open http://127.0.0.1:8480
 ```
-With Docker (no Node on the host): `cp netsec.example.json netsec.json`, edit it, then `mkdir -p backups && docker compose --profile prod run --rm board node cli/board.js init` (the admin is created inside the container's data volume) and `docker compose --profile prod up -d`. As a service: `deploy/netsec-board.service`. Behind a TLS proxy set `"trustProxy": true` (proxy on the same host) or a list of the proxy addresses: `X-Forwarded-For` is believed only from those, and only its rightmost hop.
+With Docker from the clone: `node cli/board.js setup` (or `cp netsec.example.json netsec.json` and edit it; it must exist before compose mounts it), then `mkdir -p backups && docker compose --profile prod up -d --build`. As a service: `deploy/netsec-board.service`. Behind a TLS proxy set `"trustProxy": true` (proxy on the same host) or a list of the proxy addresses: `X-Forwarded-For` is believed only from those, and only its rightmost hop.
+</details>
 
 | Source | How data arrives | Notes |
 |---|---|---|
@@ -47,7 +54,7 @@ Schedules are cron expressions in Asia/Bangkok time (`*/2 * * * *`, `@every 30s`
 
 **Security:** async scrypt passwords (at most 20 checks at a time), HttpOnly SameSite=Strict sessions that also end open live streams on logout, CSRF tokens, login backoff per IP (IPv6 per /64; `X-Forwarded-For` only from listed proxies, rightmost hop), at most 2 password checks at once per address with 4 slots kept for known logins, a 15-minute lock per account + address after 10 failures (the account itself only slows down, max 30 s, and never for an address it logged in from), failed/locked logins on an admin tile, viewer/operator/admin roles, strict CSP, no HTML built from strings in the UI (log fields are attacker-controlled), secrets only as references, database `0600` with 30-day retention and an audit of who viewed, pinned or acknowledged what (PDPA: treat `data/board.db` as an ISMS asset).
 
-**Tests:** `npm test` (103: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks copy vendor documentation and are **not yet verified against real KKU devices** (weeks 3–5).
+**Tests:** `npm test` (109: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks copy vendor documentation and are **not yet verified against real KKU devices** (weeks 3–5).
 
 **Prior art (searched 2026-11-06):** the pieces exist separately (Wazuh-Autopilot and SOC-Automation for LLM triage of Wazuh alerts, fortigate-log-triage, fwrule-mcp, forti-elk, Zabbix + Ollama webhook guides, vendor AI in FortiAnalyzer and ManageEngine). None combines FortiGate config and logs, Wazuh, Zabbix and syslog on one board with an on-prem LLM whose output cannot lower device-field severity, Thai output and an injection evaluation. AiSOC's reported auto-closing of alerts through injection (May 2026) shows why the guard matters.
 

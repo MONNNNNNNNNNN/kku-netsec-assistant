@@ -8,3 +8,8 @@ data/
 netsec.json
 test-results/
 playwright-report/
+# secrets and local state written by install.sh / cli/board.js setup
+secrets.env
+.env
+backups/
+*.lock

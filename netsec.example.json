@@ -31,5 +31,5 @@
     ]
   },
   "llm": null,
-  "_llm_example": { "url": "http://127.0.0.1:11434/v1", "model": "qwen2.5:3b-instruct", "budgetPerHour": 4, "queueMax": 20, "autoMinSeverity": "high", "batch": 5, "allowRemote": false, "allowHttpLan": false }
+  "_llm_example": { "url": "http://127.0.0.1:11434/v1", "model": "qwen2.5:3b-instruct", "budgetPerHour": 4, "queueMax": 20, "autoMinSeverity": "critical", "batch": 5, "allowRemote": false, "allowHttpLan": false }
 }

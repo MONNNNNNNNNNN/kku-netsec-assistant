@@ -71,6 +71,19 @@ function addUser(db, username, password, role = 'viewer') {
   if (String(password).length < 10) throw new Error('password must be at least 10 characters');
   db.prepare('INSERT INTO users(username, pass_hash, role, created) VALUES(?, ?, ?, ?)').run(username, hashPassword(password), role, new Date().toISOString());
 }
+/**
+ * First start after `cli/board.js setup`: no user yet, and secrets.env carries the admin's
+ * scrypt hash (NETSEC_ADMIN_HASH, NETSEC_ADMIN_USER). Creates that admin. Returns the name or null.
+ */
+function bootstrapAdmin(db, env = process.env) {
+  const hash = env.NETSEC_ADMIN_HASH;
+  if (!hash || !parseHash(hash)) return null;
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n) return null;
+  const name = /^[a-z0-9._-]{2,40}$/i.test(env.NETSEC_ADMIN_USER || '') ? env.NETSEC_ADMIN_USER : 'admin';
+  db.prepare('INSERT INTO users(username, pass_hash, role, created) VALUES(?, ?, ?, ?)').run(name, hash, 'admin', new Date().toISOString());
+  return name;
+}
+
 function setPassword(db, username, password) {
   if (String(password).length < 10) throw new Error('password must be at least 10 characters');
   const n = db.prepare('UPDATE users SET pass_hash = ?, failed = 0, locked_until = 0 WHERE username = ?').run(hashPassword(password), username).changes;
@@ -201,4 +214,4 @@ function sessionCookie(token, { secure, hours }) {
 }
 const clearCookie = (secure) => `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
 
-module.exports = { ROLES, roleRank, COOKIE, hashPassword, verifyPassword, verifyPasswordAsync, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, ipKey, LOCK_AFTER, SLOW_AFTER, ACCOUNT_MAX_WAIT, RESERVED_CHECKS };
+module.exports = { bootstrapAdmin, ROLES, roleRank, COOKIE, hashPassword, verifyPassword, verifyPasswordAsync, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, ipKey, LOCK_AFTER, SLOW_AFTER, ACCOUNT_MAX_WAIT, RESERVED_CHECKS };

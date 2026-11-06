@@ -51,6 +51,8 @@ async function createApp(loaded, opts = {}) {
   const { cfg, raw } = loaded;
   const cli = opts.role === 'cli';
   const db = db_.openDb(cfg.dataDir);
+  const boot = require('./auth.js').bootstrapAdmin(db);
+  if (boot) (opts.log || ((m) => console.error(`[board] ${m}`)))(`created admin "${boot}" from secrets.env (NETSEC_ADMIN_HASH)`);
   const log = opts.log || ((m) => console.error(`[board] ${m}`));
   const app = { cfg, rawConfig: raw, db, version: VERSION, log };
   // live stream: response -> session token hash, so a stream ends when its session does
@@ -210,6 +212,7 @@ async function main() {
   const i = argv.indexOf('--config');
   const file = i >= 0 ? argv[i + 1] : process.env.NETSEC_CONFIG || 'netsec.json';
   const loaded = loadConfig(file);
+  if (loaded.secretsWarning) console.error(`[board] WARN ${loaded.secretsWarning}`);
   const app = await createApp(loaded);
   console.error(`[board] NetSec Board ${VERSION} on ${app.url} (data ${loaded.cfg.dataDir})`);
   if (app.syslogAddress) console.error(`[board] syslog on ${JSON.stringify(app.syslogAddress)}`);
@@ -223,7 +226,8 @@ async function main() {
 
 if (require.main === module) {
   main().catch((e) => {
-    if (e.code === 'EADDRINUSE' || e.code === 'EACCES') console.error(`[board] cannot listen on ${e.address}:${e.port} (${e.code === 'EADDRINUSE' ? 'already in use: is another board or the demo still running?' : 'permission denied'}). Stop the other process, or set listen.port in the config / NETSEC_LISTEN_PORT.`);
+    if (e.code === 'EACCES' && e.syscall !== 'listen' && e.path) console.error(`[board] cannot read ${e.path} (permission denied): the board runs as ${process.getuid ? `uid ${process.getuid()}` : 'this user'}; make the file readable for it (netsec.json holds no secrets: chmod 644 is fine).`);
+    else if ((e.code === 'EADDRINUSE' || e.code === 'EACCES') && e.syscall === 'listen') console.error(`[board] cannot listen on ${e.address}:${e.port} (${e.code === 'EADDRINUSE' ? 'already in use: is another board or the demo still running?' : 'permission denied'}). Stop the other process, or set listen.port in the config / NETSEC_LISTEN_PORT.`);
     else if (e.code === 'ENOENT' && /netsec\.json|\.json'?$/.test(e.path || '')) console.error(`[board] no config file ${e.path}: run "node cli/board.js init" first (or pass --config <file>).`);
     else console.error(e.stack || e.message);
     process.exit(1);

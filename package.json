@@ -1,6 +1,6 @@
 {
   "name": "kku-netsec-assistant",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "NetSec Board: auto-pulled FortiGate/Wazuh/Zabbix/syslog monitoring with a moodboard UI, plus FortiGate config review (ISO/IEC 27001:2022 evidence) and log-injection-hardened on-prem LLM triage. Read-only.",
   "license": "MIT",

@@ -1,9 +1,10 @@
 # NetSec Board
 #   Demo (mocks, no real device):  docker compose --profile demo up -d --build
 #                                   open http://127.0.0.1:8480  (admin / demo-admin-pass)
-#   Production:                     cp netsec.example.json netsec.json   # enable sources; listen/data paths are set below
-#                                   mkdir -p backups && docker compose --profile prod run --rm board node cli/board.js init
-#                                   docker compose --profile prod up -d
+#   Production (easiest):           ./install.sh   (or the curl one-liner in the README; uses deploy/compose.install.yaml)
+#   Production from this clone:     node cli/board.js setup   (or: cp netsec.example.json netsec.json and edit it;
+#                                   netsec.json must exist, or Docker creates a directory in its place)
+#                                   mkdir -p backups && docker compose --profile prod up -d --build
 #   Optional local LLM:             add --profile llm (Ollama, CPU; pull a model first)
 # The UI is published on 127.0.0.1 only; put Caddy/nginx with TLS in front (deploy/Caddyfile.example).
 # Syslog must be reachable from the FortiGate: set SYSLOG_BIND to the board's management-VLAN IP.
@@ -19,10 +20,12 @@ services:
   board:
     profiles: [prod]
     build: .
-    image: netsec-board:0.4.0
+    image: netsec-board:0.5.0
     <<: *hardening
     env_file:
-      - path: .env            # secrets referenced as env:NAME in netsec.json
+      - path: secrets.env     # written by setup: env:NETSEC_* secrets and the first-start admin hash
+        required: false
+      - path: .env            # older installs kept secrets here
         required: false
     environment:              # container paths win over the file, so the example config works unedited
       NETSEC_LISTEN_HOST: 0.0.0.0
@@ -44,7 +47,7 @@ services:
   board-demo:
     profiles: [demo]
     build: .
-    image: netsec-board:0.4.0
+    image: netsec-board:0.5.0
     <<: *hardening
     environment:
       NETSEC_CONFIG: /app/deploy/netsec.docker-demo.json
@@ -65,7 +68,7 @@ services:
   lab:
     profiles: [demo]
     build: .
-    image: netsec-board:0.4.0
+    image: netsec-board:0.5.0
     <<: *hardening
     command: ["node", "mocks/lab.js", "--host", "0.0.0.0", "--board-syslog", "172.28.0.20:5514", "--spoof-target", "172.29.0.20:5514", "--backups", "/backups"]
     user: root  # writes the sample backup into the shared volume, then only serves mocks

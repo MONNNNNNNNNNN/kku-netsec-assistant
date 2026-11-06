@@ -1092,7 +1092,7 @@
   }
 
   return {
-    version: '0.4.0',
+    version: '0.5.0',
     parseConfig, analyze, buildReport, buildLlmReportPrompt, mask, unmask,
     parseFortiLog, detectInjection, buildNaivePrompt, buildHardenedPrompt, buildFieldPrompt, buildPrompt, validateVerdicts, extractJson,
     newMaskState, maskLogLine, maskLogValue, riskFloor, PROMPT_MODES, CLASSES, ACTIONS, USER_FIELDS,

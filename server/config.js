@@ -102,13 +102,30 @@ function envOverrides(env = process.env) {
   return o;
 }
 
+/**
+ * secrets.env next to the config file (NAME=value, the systemd EnvironmentFile format, written
+ * by `cli/board.js setup`) is loaded into process.env, so a plain `node server/main.js`
+ * resolves its env: secrets. Variables already set win (Docker env_file, systemd).
+ * Returns a warning string, or null.
+ */
+function loadSecretsFile(configFile) {
+  const p = path.join(path.dirname(path.resolve(configFile)), 'secrets.env');
+  let st;
+  try { st = fs.statSync(p); } catch { return null; }
+  if (!st.isFile()) return null;
+  // under systemd the file is root-only and already loaded by EnvironmentFile: unreadable is fine
+  try { process.loadEnvFile(p); } catch (e) { return e.code === 'EACCES' ? null : `${p}: ${e.message}`; }
+  return (st.mode & 0o077) ? `${p} is readable by group/others (mode ${(st.mode & 0o777).toString(8)}): chmod 600 ${p}` : null;
+}
+
 function loadConfig(file, overrides = {}, env = process.env) {
+  const secretsWarning = file && env === process.env ? loadSecretsFile(file) : null;
   const raw = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const merged = merge(merge(merge(DEFAULTS, raw), envOverrides(env)), overrides);
   const base = file ? path.dirname(path.resolve(file)) : process.cwd();
   merged.dataDir = path.resolve(base, merged.dataDir);
   if (merged.sources.configdrop.dir) merged.sources.configdrop.dir = path.resolve(base, merged.sources.configdrop.dir);
-  return { raw: merged, cfg: resolveAll(merged), file: file ? path.resolve(file) : null };
+  return { raw: merged, cfg: resolveAll(merged), file: file ? path.resolve(file) : null, secretsWarning };
 }
 
-module.exports = { DEFAULTS, SEV, sevRank, merge, resolveSecret, resolveAll, redact, literalSecrets, loadConfig, envOverrides };
+module.exports = { DEFAULTS, SEV, sevRank, merge, resolveSecret, resolveAll, redact, literalSecrets, loadConfig, loadSecretsFile, envOverrides };
