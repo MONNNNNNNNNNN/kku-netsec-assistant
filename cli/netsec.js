@@ -32,7 +32,6 @@ function args(argv) {
 }
 
 const THINK = process.argv.includes('--think');
-const crypto = require('node:crypto');
 const path = require('node:path');
 
 /*
@@ -43,7 +42,6 @@ const path = require('node:path');
  */
 const argAt = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : undefined; };
 const AUDIT = process.argv.includes('--no-audit') ? null : argAt('--audit') || process.env.NETSEC_AUDIT || 'audit/llm-calls.jsonl';
-const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 function audit(rec) {
   if (!AUDIT) return;
   try {
@@ -52,93 +50,24 @@ function audit(rec) {
   } catch (e) { console.error(`audit log write failed: ${e.message}`); process.exitCode = 3; }
 }
 
-/*
- * On-prem enforcement (A.5.23): the LLM endpoint must resolve to loopback or a
- * private range. Checked once per process, before the first request.
- */
-const net = require('node:net');
-const dns = require('node:dns').promises;
-function ipClass(ip) {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 127) return 'loopback';
-    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)) return 'private';
-    return 'remote';
-  }
-  const v = ip.toLowerCase();
-  if (v === '::1') return 'loopback';
-  const m = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (m) return ipClass(m[1]);
-  if (/^f[cd]/.test(v) || /^fe[89ab]/.test(v)) return 'private';
-  return 'remote';
-}
-const ENDPOINT = new Map();
-async function checkEndpoint(base) {
-  if (ENDPOINT.has(base)) return ENDPOINT.get(base);
-  let u;
-  try { u = new URL(String(base)); } catch { console.error(`invalid --llm URL: ${base}`); process.exit(2); }
-  const host = u.hostname.replace(/^\[|\]$/g, '');
-  let addrs;
-  try { addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((a) => a.address); }
-  catch (e) { console.error(`cannot resolve LLM host ${host}: ${e.message}`); process.exit(2); }
-  const classes = addrs.map(ipClass);
-  const cls = classes.includes('remote') ? 'remote' : classes.every((c) => c === 'loopback') ? 'loopback' : 'private';
-  const override = [];
-  if (cls === 'remote') {
-    if (!process.argv.includes('--allow-remote-llm')) { console.error(`refused: LLM endpoint ${host} (${addrs.join(', ')}) is not on-prem (loopback or private range). Masked data would leave the network. Override with --allow-remote-llm.`); process.exit(2); }
-    override.push('allow-remote-llm');
-  }
-  if (cls !== 'loopback' && u.protocol !== 'https:') {
-    if (!process.argv.includes('--allow-http-lan')) { console.error(`refused: ${u.protocol}//${host} is not loopback, so https is required. Use https or pass --allow-http-lan for a trusted LAN.`); process.exit(2); }
-    override.push('allow-http-lan');
-  }
-  const r = { endpoint_class: cls, endpoint_overrides: override };
-  ENDPOINT.set(base, r);
-  return r;
-}
-
+const LLM = require('../server/llm.js');
+const LLM_OPTS = {
+  allowRemote: process.argv.includes('--allow-remote-llm'),
+  allowHttpLan: process.argv.includes('--allow-http-lan'),
+  think: THINK,
+  apiKey: process.env.LLM_API_KEY,
+  cmd: process.argv[2],
+  tool: `netsec ${require('../package.json').version}`,
+  audit,
+};
+/** CLI wrapper: endpoint refusals keep their messages and exit code 2. */
 async function chat(base, model, messages, opts = {}) {
-  const ep = await checkEndpoint(base);
-  const t0 = Date.now();
-  const rec = { ts: new Date().toISOString(), cmd: process.argv[2], tool: `netsec ${require('../package.json').version}`, endpoint: new URL(String(base)).host, ...ep, model, temperature: opts.temperature ?? 0.2, prompt_sha256: sha(JSON.stringify(messages)), messages };
   try {
-    const out = await chatRaw(base, model, messages, opts);
-    audit({ ...rec, ms: out.ms, reply_sha256: sha(out.text), reply: out.text });
-    return out;
+    return await LLM.chat(base, model, messages, { ...LLM_OPTS, ...opts });
   } catch (e) {
-    audit({ ...rec, ms: Date.now() - t0, error: e.message });
+    if (/^ENDPOINT_/.test(e.code)) { console.error(e.message); process.exit(2); }
     throw e;
   }
-}
-
-async function chatRaw(base, model, messages, opts = {}) {
-  const url = `${String(base).replace(/\/+$/, '')}/chat/completions`;
-  const t0 = Date.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(process.env.LLM_API_KEY ? { authorization: `Bearer ${process.env.LLM_API_KEY}` } : {}) },
-    // stream: CPU inference can take minutes before the first byte, longer than
-    // undici's 300 s headers timeout for a non-streamed reply
-    // reasoning_effort "none" turns off hidden thinking (Ollama, Qwen3.x); pass --think to keep it
-    body: JSON.stringify({ model, messages, temperature: opts.temperature ?? 0.2, max_tokens: opts.maxTokens ?? 2048, stream: true, ...(THINK ? {} : { reasoning_effort: 'none' }) }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 1800000),
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  let raw = '', buf = '';
-  const dec = new TextDecoder();
-  for await (const chunk of res.body) {
-    buf += dec.decode(chunk, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (data === '[DONE]') continue;
-      try { raw += JSON.parse(data).choices?.[0]?.delta?.content || ''; } catch { /* keep-alive or partial */ }
-    }
-  }
-  const text = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-  return { text, ms: Date.now() - t0 };
 }
 
 const need = (o, k) => { if (!o[k]) { console.error(`missing --${k}`); process.exit(2); } return o[k]; };

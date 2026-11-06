@@ -1,0 +1,23 @@
+{
+  "_comment": "Demo config: every source points at mocks/lab.js. Login is created by `npm run demo` (admin / demo-admin-pass). Never use these secrets for real systems.",
+  "listen": { "host": "127.0.0.1", "port": 8480 },
+  "publicUrl": "http://127.0.0.1:8480",
+  "dataDir": "./demo-data",
+  "lang": "th",
+  "board": { "notifyMinSeverity": "high" },
+  "sources": {
+    "syslog": { "enabled": true, "bind": "127.0.0.1", "port": 5514, "allow": ["127.0.0.1"], "minSeverity": "low" },
+    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://127.0.0.1:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD", "minSeverity": "low" },
+    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://127.0.0.1:18081", "token": "env:DEMO_ZABBIX_TOKEN", "minSeverity": "low" },
+    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "./demo-backups" },
+    "fortigate": { "enabled": false, "schedule": "0 2 * * *", "url": "http://127.0.0.1:18443", "token": "env:DEMO_FGT_TOKEN" }
+  },
+  "hooks": { "generic": { "token": "env:DEMO_HOOK_TOKEN" } },
+  "notify": {
+    "channels": [
+      { "name": "ntfy-demo", "type": "ntfy", "url": "http://127.0.0.1:18090/ntfy", "topic": "netsec", "minSeverity": "high" },
+      { "name": "line-demo", "type": "line", "apiBase": "http://127.0.0.1:18090/line", "channelToken": "env:DEMO_LINE_TOKEN", "to": "Cdemo", "minSeverity": "high", "digestEveryMinutes": 2, "maxPerDay": 8 }
+    ]
+  },
+  "llm": { "url": "http://127.0.0.1:11435/v1", "model": "mock-adversarial", "budgetPerHour": 12, "autoMinSeverity": "critical", "batch": 5 }
+}

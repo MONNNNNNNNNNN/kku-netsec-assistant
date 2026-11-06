@@ -2,3 +2,9 @@ node_modules/
 *.log
 !samples/*.log
 audit/
+demo-data/
+demo-backups/
+data/
+netsec.json
+test-results/
+playwright-report/

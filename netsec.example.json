@@ -1,0 +1,35 @@
+{
+  "_comment": "NetSec Board config. Secrets are references: \"env:NAME\" or \"file:/run/secrets/name\". Every source is off until you enable it. Run: node cli/board.js check",
+  "listen": { "host": "127.0.0.1", "port": 8480 },
+  "publicUrl": "https://netsec-board.example.kku.ac.th",
+  "cookieSecure": false,
+  "trustProxy": false,
+  "dataDir": "./data",
+  "retentionDays": 30,
+  "lang": "th",
+  "tzOffsetMinutes": 420,
+  "board": { "notifyMinSeverity": "high" },
+  "sources": {
+    "syslog": { "enabled": false, "bind": "0.0.0.0", "port": 5514, "tcp": true, "udp": true, "allow": ["10.0.0.1"], "ratePerSec": 2000, "minSeverity": "low" },
+    "wazuh": { "enabled": false, "schedule": "*/2 * * * *", "url": "https://wazuh-indexer.example:9200", "index": "wazuh-alerts-*", "username": "netsec_board_ro", "password": "env:WAZUH_PASSWORD", "caFile": "", "minSeverity": "low" },
+    "zabbix": { "enabled": false, "schedule": "*/2 * * * *", "url": "https://zabbix.example", "token": "env:ZABBIX_TOKEN", "caFile": "", "minSeverity": "low" },
+    "configdrop": { "enabled": false, "schedule": "*/5 * * * *", "dir": "./backups" },
+    "fortigate": { "enabled": false, "schedule": "0 2 * * *", "url": "https://fgt.example", "token": "env:FGT_TOKEN", "caFile": "", "method": "auto", "scope": "global" }
+  },
+  "hooks": {
+    "zabbix": { "token": "" },
+    "wazuh": { "token": "" },
+    "generic": { "token": "" },
+    "ratePerMin": 120
+  },
+  "notify": {
+    "channels": [
+      { "name": "ntfy-noc", "type": "ntfy", "enabled": false, "url": "https://ntfy.example", "topic": "netsec", "token": "env:NTFY_TOKEN", "minSeverity": "high", "quietHours": { "start": "22:00", "end": "07:00", "except": "critical" } },
+      { "name": "telegram-noc", "type": "telegram", "enabled": false, "botToken": "env:TELEGRAM_BOT_TOKEN", "chatId": "-1000000000000", "minSeverity": "critical" },
+      { "name": "line-noc", "type": "line", "enabled": false, "channelToken": "env:LINE_CHANNEL_TOKEN", "to": "Cxxxxxxxx", "minSeverity": "high", "mode": "digest", "maxPerDay": 8 },
+      { "name": "webhook", "type": "webhook", "enabled": false, "url": "https://n8n.example/webhook/netsec", "secret": "env:WEBHOOK_SECRET", "minSeverity": "medium" }
+    ]
+  },
+  "llm": null,
+  "_llm_example": { "url": "http://127.0.0.1:11434/v1", "model": "qwen2.5:3b-instruct", "budgetPerHour": 4, "queueMax": 20, "autoMinSeverity": "high", "batch": 5, "allowRemote": false, "allowHttpLan": false }
+}
