@@ -38,7 +38,11 @@ function flagsOf(untrusted) {
   return flags;
 }
 
+const MAX_FUTURE_MS = 5 * 60000;
 function finish(e) {
+  // a device clock in the future would keep the card on top and out of retention: clamp it
+  const now = Date.now();
+  e.ts = Number.isFinite(e.ts) ? Math.min(e.ts, now + MAX_FUTURE_MS) : now;
   e.trusted = capFields(e.trusted);
   e.untrusted = capFields(e.untrusted);
   e.flags = flagsOf(e.untrusted);

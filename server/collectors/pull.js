@@ -16,29 +16,44 @@ const crypto = require('node:crypto');
 const { request, requestOk } = require('../net.js');
 const trust = require('../trust.js');
 
+/*
+ * Late arrivals. Filebeat ships alerts to the indexer seconds to minutes after their
+ * `timestamp`, and Zabbix history syncers can commit a lower eventid after a higher one is
+ * visible. A strict "after the last one" cursor would skip those for good, so each pull looks
+ * back over a lag window and skips what it already saw there (the cursor keeps those ids).
+ */
+const LAG_MS = 120000, SEEN_MAX = 5000;
+const keepSeen = (seen, floor) => seen.filter(([, t]) => t >= floor).slice(-SEEN_MAX);
+
 // ---------------------------------------------------------------- Wazuh indexer
 async function pullWazuh(cfg, cursor) {
   const url = `${cfg.url.replace(/\/+$/, '')}/${encodeURIComponent(cfg.index || 'wazuh-alerts-*').replace(/%2A/g, '*')}/_search`;
   const size = cfg.pageSize || 500;
-  let cur = cursor && cursor.ts ? { ts: cursor.ts, ids: cursor.ids || [] } : null;
+  const lag = cfg.lagWindowMs ?? LAG_MS;
+  // cursor: { maxTs (epoch ms), seen: [[_id, ts], ...] }; v0.4 cursors were { ts: ISO, ids }
+  let maxTs = cursor ? (cursor.maxTs ?? (cursor.ts ? Date.parse(cursor.ts) : null)) : null;
+  let seen = cursor ? (cursor.seen || (cursor.ids || []).map((id) => [id, maxTs])) : [];
   const events = [];
   for (let page = 0; page < 10; page++) {
-    const range = cur ? { gte: cur.ts } : { gte: `now-${cfg.initialLookback || '1h'}` };
+    const range = maxTs != null ? { gte: maxTs - lag, format: 'epoch_millis' } : { gte: `now-${cfg.initialLookback || '1h'}` };
+    const ids = seen.map(([id]) => id);
     const body = {
       size,
       sort: [{ timestamp: { order: 'asc' } }],
-      query: { bool: { filter: [{ range: { timestamp: range } }], ...(cur && cur.ids.length ? { must_not: [{ ids: { values: cur.ids } }] } : {}) } },
+      query: { bool: { filter: [{ range: { timestamp: range } }], ...(ids.length ? { must_not: [{ ids: { values: ids } }] } : {}) } },
     };
     const r = await requestOk(url, { body, basic: cfg.username ? { username: cfg.username, password: cfg.password } : null, caFile: cfg.caFile || undefined, timeoutMs: 30000 });
     const hits = (r.json && r.json.hits && r.json.hits.hits) || [];
-    for (const h of hits) events.push(trust.wazuh(h._source || {}, h._id, cfg));
-    if (!hits.length) break;
-    const lastTs = hits[hits.length - 1]._source.timestamp;
-    const sameTs = hits.filter((h) => h._source.timestamp === lastTs).map((h) => h._id);
-    cur = { ts: lastTs, ids: (cur && cur.ts === lastTs ? [...cur.ids, ...sameTs] : sameTs).slice(-1000) };
+    for (const h of hits) {
+      events.push(trust.wazuh(h._source || {}, h._id, cfg));
+      const t = Date.parse(h._source && h._source.timestamp) || Date.now();
+      seen.push([h._id, t]);
+      maxTs = Math.max(maxTs ?? t, t);
+    }
+    if (maxTs != null) seen = keepSeen(seen, maxTs - lag);
     if (hits.length < size) break;
   }
-  return { events, cursor: cur || cursor || null };
+  return { events, cursor: maxTs != null ? { maxTs, seen } : cursor || null };
 }
 
 // ---------------------------------------------------------------- Zabbix
@@ -58,28 +73,54 @@ async function zabbixRpc(cfg, method, params, auth = true) {
   }
   return r.json.result;
 }
+const ZBX_OUTPUT = ['eventid', 'clock', 'severity', 'name', 'objectid', 'acknowledged', 'opdata', 'r_eventid'];
 async function pullZabbix(cfg, cursor) {
   const limit = cfg.pageSize || 500;
-  let from = cursor && cursor.eventid ? Number(cursor.eventid) + 1 : null;
-  const events = [];
+  const lagSec = Math.ceil((cfg.lagWindowMs ?? LAG_MS) / 1000);
+  // cursor: { eventid (max seen), clock (max seen), seen: [[eventid, clock], ...] }
+  let maxClock = cursor && cursor.clock ? Number(cursor.clock) : null;
+  let seen = (cursor && cursor.seen) || [];
   let last = cursor && cursor.eventid ? Number(cursor.eventid) : null;
+  const seenIds = new Set(seen.map(([id]) => String(id)));
+  const events = [];
+  const take = (ev) => {
+    if (seenIds.has(String(ev.eventid))) return;
+    seenIds.add(String(ev.eventid));
+    events.push(trust.zabbix(ev, cfg));
+    seen.push([String(ev.eventid), Number(ev.clock) || 0]);
+    last = Math.max(last || 0, Number(ev.eventid));
+    maxClock = Math.max(maxClock || 0, Number(ev.clock) || 0);
+  };
+  // first run: the problems that are open right now, however old (event.get alone would only
+  // see the initial lookback). problem.get has no host names, so fetch those events by id.
+  if (!cursor) {
+    const open = await zabbixRpc(cfg, 'problem.get', { output: ['eventid'], source: 0, object: 0, recent: false, sortfield: ['eventid'], sortorder: 'ASC', limit: 5000 });
+    const ids = (open || []).map((p) => p.eventid);
+    for (let i = 0; i < ids.length; i += limit) {
+      for (const ev of await zabbixRpc(cfg, 'event.get', { output: ZBX_OUTPUT, eventids: ids.slice(i, i + limit), selectHosts: ['host', 'name'], selectTags: ['tag', 'value'] })) take(ev);
+    }
+  }
+  // then events by time: from the lag window before the newest clock seen (or the initial
+  // lookback), paging by eventid inside this run
+  const timeFrom = maxClock != null && cursor && cursor.clock ? maxClock - lagSec : Math.floor(Date.now() / 1000) - (cfg.initialLookbackSec || 3600);
+  const legacyFrom = cursor && cursor.eventid && !cursor.clock ? Number(cursor.eventid) + 1 : null; // v0.4 cursor
+  let from = legacyFrom;
   for (let page = 0; page < 10; page++) {
     const params = {
-      output: ['eventid', 'clock', 'severity', 'name', 'objectid', 'acknowledged', 'opdata', 'r_eventid'],
+      output: ZBX_OUTPUT,
       source: 0, object: 0, value: [0, 1], // 1 = problem, 0 = recovery (resolves the card)
       selectHosts: ['host', 'name'], selectTags: ['tag', 'value'],
       sortfield: ['eventid'], sortorder: 'ASC', limit,
-      ...(from ? { eventid_from: String(from) } : { time_from: String(Math.floor(Date.now() / 1000) - (cfg.initialLookbackSec || 3600)) }),
+      ...(legacyFrom ? {} : { time_from: String(timeFrom) }),
+      ...(from ? { eventid_from: String(from) } : {}),
     };
     const rows = await zabbixRpc(cfg, 'event.get', params);
-    for (const ev of rows) {
-      events.push(trust.zabbix(ev, cfg));
-      last = Math.max(last || 0, Number(ev.eventid));
-    }
+    for (const ev of rows) take(ev);
     if (rows.length < limit) break;
-    from = last + 1;
+    from = Math.max(...rows.map((r) => Number(r.eventid))) + 1;
   }
-  return { events, cursor: last ? { eventid: String(last) } : cursor || null };
+  if (maxClock != null) seen = keepSeen(seen, maxClock - lagSec);
+  return { events, cursor: last ? { eventid: String(last), clock: maxClock, seen } : cursor || null };
 }
 
 /** Checks the token and detects a stripped Authorization header. */

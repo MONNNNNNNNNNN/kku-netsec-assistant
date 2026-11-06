@@ -35,9 +35,14 @@ function makeJob(name, { cfg, db, pipeline }) {
   };
 }
 
-/** Wire everything together. opts: {listen, startSources, jitter, log} */
+/**
+ * Wire everything together. opts: {listen, startSources, jitter, log, role}
+ * role "cli" (`cli/board.js pull` from system cron) is a lean writer: no LLM queue, no
+ * recovery of the server's LLM state, no retention. The running server picks its rows up.
+ */
 async function createApp(loaded, opts = {}) {
   const { cfg, raw } = loaded;
+  const cli = opts.role === 'cli';
   const db = db_.openDb(cfg.dataDir);
   const log = opts.log || ((m) => console.error(`[board] ${m}`));
   const app = { cfg, rawConfig: raw, db, version: VERSION, log };
@@ -47,9 +52,16 @@ async function createApp(loaded, opts = {}) {
   app.sseAdd = (res, tokenHash) => sse.set(res, tokenHash);
   app.sseDrop = (res) => sse.delete(res);
   app.sseEndSession = (tokenHash) => { for (const [res, h] of sse) if (h === tokenHash) { res.end(); sse.delete(res); } };
+  // a stalled client (phone in the background, TCP window 0) must not make Node buffer forever:
+  // past the cap the stream ends, the browser reconnects (retry: 3000) and refetches
+  const sseMaxBuffer = opts.sseMaxBuffer ?? 1024 * 1024;
+  app.sseWrite = (res, msg) => {
+    if (res.writableLength > sseMaxBuffer) { sse.delete(res); res.destroy(); return; }
+    res.write(msg);
+  };
   app.broadcast = (event, data) => {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const res of sse.keys()) res.write(msg);
+    for (const res of [...sse.keys()]) app.sseWrite(res, msg);
   };
   // Pipeline changes are coalesced: at most one "items" event per interval, each card once.
   // A plain repeat (count +1) only sends {id, count, lastSeen}; a burst of 2,000 lines/s must
@@ -75,12 +87,34 @@ async function createApp(loaded, opts = {}) {
 
   app.pipeline = new Pipeline({ db, cfg, batchMs: opts.batchMs ?? 200 });
   app.notifier = new Notifier({ db, cfg, senders: opts.senders });
-  app.llmq = new LlmQueue({ db, cfg: cfg.llm, pipeline: app.pipeline, lang: cfg.lang, chat: opts.chat });
+  // the CLI never talks to the LLM: the server owns the queue (and its in-flight state)
+  app.llmq = new LlmQueue({ db, cfg: cli ? null : cfg.llm, pipeline: app.pipeline, lang: cfg.lang, chat: opts.chat });
   app.scheduler = new Scheduler({ db, tzOffsetMinutes: cfg.tzOffsetMinutes, jitter: opts.jitter ?? true, backoffBaseMs: opts.backoffBaseMs });
-  const recovered = app.llmq.recover();
-  if (recovered) log(`llm: ${recovered} card(s) left queued by the last run were reset`);
+  if (!cli) {
+    const recovered = app.llmq.recover();
+    if (recovered) log(`llm: ${recovered} card(s) left queued by the last run were reset`);
+  }
+
+  // rows inserted by another process (the CLI) are swept up when data_version changes;
+  // ids this process created itself are skipped (it already handled them)
+  let swept = db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM items').get().m;
+  const ownIds = new Set();
+  app.sweepForeign = () => {
+    const rows = db.prepare('SELECT * FROM items WHERE id > ? ORDER BY id').all(swept);
+    for (const r of rows) {
+      swept = Math.max(swept, r.id);
+      if (ownIds.delete(r.id)) continue;
+      const c = { id: r.id, item: toItem(r), isNew: true, escalated: false, foreign: true };
+      app.queueItem(c);
+      app.notifier.boardNote(c); // channels were already routed by the writer
+      app.llmq.consider(c);
+    }
+    for (const id of ownIds) if (id <= swept) ownIds.delete(id);
+    return rows.length;
+  };
 
   app.pipeline.on('change', (c) => {
+    if (c.isNew && !c.reopened && c.id > swept) ownIds.add(c.id);
     app.queueItem(c);
     if (!c.llm) { app.notifier.consider(c); app.llmq.consider(c); }
     else if (c.escalated) app.notifier.consider({ ...c, isNew: false });
@@ -98,18 +132,18 @@ async function createApp(loaded, opts = {}) {
   let dv = db.prepare('PRAGMA data_version').get().data_version;
   const dvTimer = setInterval(() => {
     const v = db.prepare('PRAGMA data_version').get().data_version;
-    if (v !== dv) { dv = v; app.broadcast('refresh', {}); }
+    if (v !== dv) { dv = v; app.sweepForeign(); app.broadcast('refresh', {}); }
   }, 2000);
   // heartbeat; also ends streams whose session was logged out, expired or revoked (user passwd)
   const sessionAlive = db.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ?');
   const hb = setInterval(() => {
     for (const [res, h] of sse) {
-      if (!sessionAlive.get(h, Date.now())) { res.end(); sse.delete(res); } else res.write(': ping\n\n');
+      if (!sessionAlive.get(h, Date.now())) { res.end(); sse.delete(res); } else app.sseWrite(res, ': ping\n\n');
     }
   }, opts.heartbeatMs ?? 25000);
   const ret = setInterval(() => db_.retention(db, cfg.retentionDays), 6 * 3600000);
   for (const t of [dvTimer, hb, ret]) t.unref();
-  db_.retention(db, cfg.retentionDays);
+  if (cli) { clearInterval(dvTimer); clearInterval(hb); clearInterval(ret); } else db_.retention(db, cfg.retentionDays);
 
   if (opts.startSources !== false) {
     if (cfg.sources.syslog.enabled) {

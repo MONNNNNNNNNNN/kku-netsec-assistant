@@ -2,8 +2,8 @@
 /*
  * Browser end-to-end test (Playwright, headless Chromium; dev dependency only).
  *   npm run test:e2e            (first time: npx playwright install chromium)
- * Boots a board against the mocks, then drives the real UI. Screenshots go to
- * docs/screenshots/ (light, dark, phone).
+ * Boots a board against the mocks, then drives the real UI. Screenshots (light, dark, phone)
+ * go to a temp folder; UPDATE_SCREENSHOTS=1 writes them to docs/screenshots/ for the README.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,7 +14,7 @@ const M = require('../../mocks/servers.js');
 const { startBoard, sleep } = require('../board/helpers.js');
 
 const ROOT = path.join(__dirname, '..', '..');
-const SHOTS = path.join(ROOT, 'docs/screenshots');
+const SHOTS = process.env.UPDATE_SCREENSHOTS === '1' ? path.join(ROOT, 'docs/screenshots') : fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'nsb-shots-'));
 const LOGS = fs.readFileSync(path.join(ROOT, 'samples/fgt-logs.log'), 'utf8').split('\n').filter(Boolean);
 
 test('board in a real browser: login, live cards, expand/collapse, pin, ack, snooze, toasts, bell, filters, Explain, dark mode, phone width', { timeout: 120000 }, async () => {

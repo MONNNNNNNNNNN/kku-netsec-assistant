@@ -38,14 +38,36 @@ function udpKernelDrops(port) {
 
 function ip2int(ip) { return ip.split('.').reduce((a, o) => (a << 8) + Number(o), 0) >>> 0; }
 function normIp(ip) { return String(ip).replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1'); }
+/** IPv6 address -> BigInt (null if not IPv6). */
+function ip6big(ip) {
+  if (!net.isIPv6(ip) || ip.includes('.')) return null;
+  const [head, tail] = ip.split('::');
+  const a = head ? head.split(':') : [], b = ip.includes('::') && tail ? tail.split(':') : [];
+  const parts = ip.includes('::') ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
+  return parts.reduce((acc, h) => (acc << 16n) + BigInt(parseInt(h || '0', 16)), 0n);
+}
+/** One allowlist entry is valid: an IP, an IPv4 CIDR or an IPv6 CIDR. */
+function validEntry(a) {
+  const [base, bits] = String(a).split('/');
+  if (bits === undefined) return net.isIP(normIp(base)) !== 0;
+  const b = Number(bits);
+  return /^\d+$/.test(bits) && (net.isIPv4(base) ? b <= 32 : net.isIPv6(base) && !base.includes('.') ? b <= 128 : false);
+}
 function allowed(list, ipRaw) {
   const ip = normIp(ipRaw);
   for (const a of list || []) {
     const [base, bits] = String(a).split('/');
     if (bits === undefined) { if (normIp(base) === ip) return true; continue; }
-    if (!net.isIPv4(ip) || !net.isIPv4(base)) continue;
-    const b = Number(bits), m = b === 0 ? 0 : (~0 << (32 - b)) >>> 0;
-    if ((ip2int(ip) & m) === (ip2int(base) & m)) return true;
+    const b = Number(bits);
+    if (net.isIPv4(ip) && net.isIPv4(base)) {
+      const m = b === 0 ? 0 : (~0 << (32 - b)) >>> 0;
+      if ((ip2int(ip) & m) === (ip2int(base) & m)) return true;
+      continue;
+    }
+    const x = ip6big(ip), y = ip6big(base);
+    if (x === null || y === null || !(b >= 0 && b <= 128)) continue;
+    const shift = BigInt(128 - b);
+    if ((x >> shift) === (y >> shift)) return true;
   }
   return false;
 }
@@ -197,4 +219,4 @@ class SyslogCollector {
   }
 }
 
-module.exports = { SyslogCollector, parseSyslog, payloadKind, allowed, udpKernelDrops };
+module.exports = { SyslogCollector, parseSyslog, payloadKind, allowed, validEntry, udpKernelDrops };

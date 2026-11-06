@@ -136,15 +136,27 @@ class Notifier extends EventEmitter {
     return base ? `${base}/#item-${item.id}` : null;
   }
 
+  /** Whether a change is news at all (new, re-opened or escalated, and not muted). */
+  newsworthy(change) {
+    const item = change.item;
+    if (!item || change.resolved) return false;
+    if (!(change.isNew || change.escalated)) return false;
+    return !(item.snoozedUntil || (item.ackedBy && !change.escalated));
+  }
+  /** Board toast + bell only (no channels): used for rows another process already routed. */
+  boardNote(change) {
+    if (!this.newsworthy(change)) return;
+    const item = change.item;
+    if (sevRank(item.severity) >= sevRank((this.cfg.board && this.cfg.board.notifyMinSeverity) || 'high')) {
+      this.emit('board', { item, reason: change.escalated ? 'escalated' : change.reopened ? 'reopened' : 'new' });
+    }
+  }
+
   /** Called for every pipeline change. */
   consider(change) {
+    if (!this.newsworthy(change)) return;
     const item = change.item;
-    if (!item || change.resolved) return;
-    if (!(change.isNew || change.escalated)) return;
-    if (item.snoozedUntil || (item.ackedBy && !change.escalated)) return;
-    if (sevRank(item.severity) >= sevRank((this.cfg.board && this.cfg.board.notifyMinSeverity) || 'high')) {
-      this.emit('board', { item, reason: change.escalated ? 'escalated' : 'new' });
-    }
+    this.boardNote(change);
     for (const ch of this.channels) {
       const p = this.route(ch, item);
       if (p) this.pendingSends.add(p);
@@ -155,9 +167,11 @@ class Notifier extends EventEmitter {
   /** Wait for sends started by consider() (tests, graceful shutdown). */
   async idle() { while (this.pendingSends.size) await Promise.allSettled([...this.pendingSends]); }
 
-  lastSent(ch, itemId) {
-    const r = this.db.prepare('SELECT severity FROM notifications WHERE channel = ? AND item_id = ? AND ok = 1 ORDER BY id DESC LIMIT 1').get(ch.name, itemId);
-    return r ? r.severity : null;
+  /** Severity last sent for this item on this channel; null if never, or not since the card re-opened. */
+  lastSent(ch, itemId, reopenedAt = null) {
+    const r = this.db.prepare('SELECT severity, ts FROM notifications WHERE channel = ? AND item_id = ? AND ok = 1 ORDER BY id DESC LIMIT 1').get(ch.name, itemId);
+    if (!r || (reopenedAt && r.ts < reopenedAt)) return null; // a recurrence is news again
+    return r.severity;
   }
   /** Messages (not items: one digest = one message) sent since `since`. */
   sentSince(ch, since, digestToo = true) {
@@ -167,7 +181,7 @@ class Notifier extends EventEmitter {
   route(ch, item) {
     if (sevRank(item.severity) < sevRank(ch.minSeverity)) return null;
     if (ch.sources.length && !ch.sources.includes(item.source)) return null;
-    const prev = this.lastSent(ch, item.id);
+    const prev = this.lastSent(ch, item.id, item.reopenedAt);
     if (prev && sevRank(item.severity) <= sevRank(prev)) return null; // re-notify on escalation only
     const now = this.now();
     const exceptOk = ch.quietHours && ch.quietHours.except && sevRank(item.severity) >= sevRank(ch.quietHours.except);

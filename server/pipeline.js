@@ -45,7 +45,7 @@ function toItem(r) {
     count: r.count, firstSeen: r.first_seen, lastSeen: r.last_seen,
     pinnedBy: r.pinned_by, pinnedAt: r.pinned_at, ackedBy: r.acked_by, ackedAt: r.acked_at,
     snoozedUntil: r.snoozed_until && r.snoozed_until > now ? r.snoozed_until : null, snoozedBy: r.snoozed_until > now ? r.snoozed_by : null,
-    resolvedAt: r.resolved_at, link: r.link, llm: r.llm ? JSON.parse(r.llm) : null, llmState: r.llm_state,
+    resolvedAt: r.resolved_at, reopenedAt: r.reopened_at || null, link: r.link, llm: r.llm ? JSON.parse(r.llm) : null, llmState: r.llm_state,
   };
 }
 
@@ -57,7 +57,7 @@ class Pipeline extends EventEmitter {
     this.ins = db.prepare(`INSERT INTO items(fingerprint, source, kind, severity, det_severity, title, trusted, untrusted, flags, floor, samples, count, first_seen, last_seen, link, resolved_at)
       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`);
     this.upd = db.prepare(`UPDATE items SET count = count + 1, last_seen = ?, det_severity = ?, severity = ?, title = ?, trusted = ?, untrusted = ?, flags = ?, floor = ?, samples = ?, link = ?,
-      resolved_at = ?, acked_by = ?, acked_at = ?, snoozed_until = ?, snoozed_by = ? WHERE id = ?`);
+      resolved_at = ?, acked_by = ?, acked_at = ?, snoozed_until = ?, snoozed_by = ?, reopened_at = ? WHERE id = ?`);
     this.byId = db.prepare('SELECT * FROM items WHERE id = ?');
   }
 
@@ -115,16 +115,17 @@ class Pipeline extends EventEmitter {
     const sev = maxSev(row.severity, det);
     const escalated = sevRank(sev) > sevRank(row.severity);
     const reopened = !!row.resolved_at;
-    // an escalation re-opens an acknowledged or snoozed card; a plain repeat keeps both
-    const keepAck = row.acked_by && !escalated;
-    const keepSnooze = row.snoozed_until && !escalated;
+    // an escalation or a recurrence (the problem was resolved and came back) re-opens an
+    // acknowledged or snoozed card; a plain repeat keeps both
+    const keepAck = row.acked_by && !escalated && !reopened;
+    const keepSnooze = row.snoozed_until && !escalated && !reopened;
     // evidence is merged, never replaced: a clean repeat must not wash out an earlier injection
     const flags = union(JSON.parse(row.flags), e.flags, MAX_FLAGS);
     const floor = union(JSON.parse(row.floor || '[]'), e.floor, MAX_FLAGS);
     const samples = addSample(JSON.parse(row.samples || '[]'), e, now);
     this.upd.run(now, det, sev, e.title, j(e.trusted), j(e.untrusted), j(flags), j(floor), j(samples), e.link || null, null,
-      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, row.id);
-    return { id: row.id, isNew: reopened, escalated, resolved: false, repeat: true };
+      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened ? now : row.reopened_at, row.id);
+    return { id: row.id, isNew: reopened, reopened, escalated, resolved: false, repeat: true };
   }
 
   /** Mark config cards resolved when their finding is gone from a newer backup. */
@@ -145,6 +146,8 @@ class Pipeline extends EventEmitter {
     const sev = maxSev(row.severity, finalSeverity(row.det_severity, verdict));
     const escalated = sevRank(sev) > sevRank(row.severity);
     this.db.prepare("UPDATE items SET llm = ?, llm_state = 'done', severity = ? WHERE id = ?").run(JSON.stringify({ ...verdict, ...meta }), sev, id);
+    // same rule as upsert: an escalation re-opens an acknowledged or snoozed card
+    if (escalated) this.db.prepare('UPDATE items SET acked_by = NULL, acked_at = NULL, snoozed_until = NULL, snoozed_by = NULL WHERE id = ?').run(id);
     const c = { id, item: toItem(this.byId.get(id)), escalated, llm: true };
     this.emit('change', c);
     return c;

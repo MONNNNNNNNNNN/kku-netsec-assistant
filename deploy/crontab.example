@@ -1,10 +1,13 @@
 # System cron instead of the built-in scheduler (both work; do not use both for one source).
 # 1. In netsec.json set the source's "schedule": "external" (the board then shows it but never pulls it itself).
-# 2. Install as /etc/cron.d/netsec-board (runs as the netsec user):
+# 2. Install as /etc/cron.d/netsec-board (runs as the netsec user).
+#    secrets.env is NAME=value (systemd format): "set -a" exports what ". file" defines, otherwise
+#    env:NAME secrets would reach node empty. flock -n skips a run while the previous one is still
+#    going (the CLI also holds its own lock file, so two runs never read the same cursor).
 SHELL=/bin/sh
 NETSEC_CONFIG=/etc/netsec-board/netsec.json
-*/2 * * * *  netsec  . /etc/netsec-board/secrets.env; cd /opt/netsec-board && /usr/bin/node cli/board.js pull wazuh  >> /var/lib/netsec-board/pull.log 2>&1
-*/2 * * * *  netsec  . /etc/netsec-board/secrets.env; cd /opt/netsec-board && /usr/bin/node cli/board.js pull zabbix >> /var/lib/netsec-board/pull.log 2>&1
-*/5 * * * *  netsec  cd /opt/netsec-board && /usr/bin/node cli/board.js pull configdrop >> /var/lib/netsec-board/pull.log 2>&1
+*/2 * * * *  netsec  set -a; . /etc/netsec-board/secrets.env; set +a; cd /opt/netsec-board && flock -n /var/lib/netsec-board/pull-wazuh.flock /usr/bin/node cli/board.js pull wazuh >> /var/lib/netsec-board/pull.log 2>&1
+*/2 * * * *  netsec  set -a; . /etc/netsec-board/secrets.env; set +a; cd /opt/netsec-board && flock -n /var/lib/netsec-board/pull-zabbix.flock /usr/bin/node cli/board.js pull zabbix >> /var/lib/netsec-board/pull.log 2>&1
+*/5 * * * *  netsec  cd /opt/netsec-board && flock -n /var/lib/netsec-board/pull-configdrop.flock /usr/bin/node cli/board.js pull configdrop >> /var/lib/netsec-board/pull.log 2>&1
 # The running board notices rows written by these runs within 2 s and refreshes open browsers.
 # A systemd timer works the same way: ExecStart=/usr/bin/node /opt/netsec-board/cli/board.js pull wazuh

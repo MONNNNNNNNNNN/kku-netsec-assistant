@@ -17,6 +17,7 @@ const path = require('node:path');
 const { loadConfig, literalSecrets } = require('../server/config.js');
 const db_ = require('../server/db.js');
 const A = require('../server/auth.js');
+const { validEntry } = require('../server/collectors/syslog.js');
 
 function args(argv) {
   const o = { _: [] };
@@ -30,6 +31,30 @@ const o = args(process.argv.slice(2));
 const cfgFile = o.config || process.env.NETSEC_CONFIG || 'netsec.json';
 const die = (m, code = 2) => { console.error(m); process.exit(code); };
 const readPw = () => (o['password-file'] ? fs.readFileSync(o['password-file'], 'utf8').trim() : null);
+
+/**
+ * Exclusive lock file holding our pid. A lock whose process is gone (crash, kill -9, reboot)
+ * is taken over; a live one returns null. process.exit() skips release: the next run sees the
+ * dead pid and takes over.
+ */
+function takeLock(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(file, 'wx', 0o600);
+      fs.writeSync(fd, String(process.pid)); fs.closeSync(fd);
+      return { release: () => { try { if (fs.readFileSync(file, 'utf8') === String(process.pid)) fs.unlinkSync(file); } catch { /* gone */ } } };
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      const pid = Number(fs.readFileSync(file, 'utf8')) || 0;
+      let alive = false;
+      try { if (pid) { process.kill(pid, 0); alive = true; } } catch (k) { alive = k.code === 'EPERM'; }
+      if (alive) return null;
+      try { fs.unlinkSync(file); } catch { /* raced with another taker */ }
+    }
+  }
+  return null;
+}
 
 async function main() {
   const [cmd, sub, name] = o._;
@@ -72,13 +97,18 @@ async function main() {
   if (cmd === 'pull') {
     const { createApp, PULLERS } = require('../server/main.js');
     if (!PULLERS[sub]) die(`usage: pull <${Object.keys(PULLERS).join('|')}>`);
-    const app = await createApp(loaded, { listen: false, startSources: false, jitter: false, batchMs: -1 });
-    if (!app.scheduler.jobs.has(sub)) { await app.close(); die(`source ${sub} is not enabled in ${cfgFile}`); }
-    const r = await app.scheduler.run(sub);
-    await app.notifier.idle();
-    await app.close();
-    if (!r.ok) die(`pull ${sub} failed: ${r.error}`, 1);
-    console.log(`pull ${sub}: ${r.n} event(s)`);
+    // one run per source at a time: two runs would read the same cursor and count every event twice
+    const lock = takeLock(path.join(cfg.dataDir, `pull-${sub}.lock`));
+    if (!lock) { console.log(`pull ${sub}: already running, skipped`); return; }
+    try {
+      const app = await createApp(loaded, { listen: false, startSources: false, jitter: false, batchMs: -1, role: 'cli' });
+      if (!app.scheduler.jobs.has(sub)) { await app.close(); die(`source ${sub} is not enabled in ${cfgFile}`); }
+      const r = await app.scheduler.run(sub);
+      await app.notifier.idle();
+      await app.close();
+      if (!r.ok) die(`pull ${sub} failed: ${r.error}`, 1);
+      console.log(`pull ${sub}: ${r.n} event(s)`);
+    } finally { lock.release(); }
     return;
   }
 
@@ -120,6 +150,10 @@ async function check({ cfg, raw }) {
   if (lc !== 'loopback' && !cfg.cookieSecure) warn(`board listens on ${cfg.listen.host} (${lc}) without cookieSecure: put it behind TLS (deploy/Caddyfile.example) and set "cookieSecure": true`);
   else ok(`board listens on ${cfg.listen.host}:${cfg.listen.port} (${lc})`);
   if (/^https:/i.test(cfg.publicUrl || '') && !/\.example\./.test(cfg.publicUrl) && !cfg.trustProxy) warn('publicUrl is https but trustProxy is off: behind a proxy every client shares its address, so 5 failed logins by anyone slow down everyone. Set "trustProxy": true (proxy on this host) or a list of proxy addresses');
+  if (Array.isArray(cfg.trustProxy)) {
+    const bad = cfg.trustProxy.filter((a) => !validEntry(a));
+    if (bad.length) err(`trustProxy: cannot parse ${bad.join(', ')} (use IPs or CIDRs such as 10.0.0.5, 172.16.0.0/12, fd00::/8)`);
+  }
   if (cfg.trustProxy === true) ok('trustProxy: X-Forwarded-For is honoured only from 127.0.0.1/::1 (list the proxy addresses if the proxy runs elsewhere)');
   const db = db_.openDb(cfg.dataDir);
   ok(`database ${db.file} (mode ${(fs.statSync(db.file).mode & 0o777).toString(8)}, retention ${cfg.retentionDays} days)`);
@@ -129,6 +163,8 @@ async function check({ cfg, raw }) {
   const s = cfg.sources;
   if (s.syslog.enabled) {
     if (!s.syslog.allow.length) err('syslog: allowlist is empty, every sender is dropped (sources.syslog.allow)');
+    const badAllow = s.syslog.allow.filter((a) => !validEntry(a));
+    if (badAllow.length) err(`syslog: allowlist entries that never match: ${badAllow.join(', ')} (use IPs or CIDRs)`);
     else ok(`syslog on ${s.syslog.bind}:${s.syslog.port} ${s.syslog.tcp !== false ? 'tcp' : ''}${s.syslog.udp !== false ? '+udp' : ''}, allow ${s.syslog.allow.join(', ')}`);
     const st = db_.sourceState(db, 'syslog');
     if (st.unsupported) err(`syslog: ${st.unsupported} message(s) in CSV/CEF format. On the FortiGate: config log syslogd setting / set format rfc5424 (or default)`);

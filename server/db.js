@@ -36,7 +36,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS notify_pending (channel TEXT NOT NULL, item_id INTEGER NOT NULL, queued_at INTEGER NOT NULL, PRIMARY KEY (channel, item_id))`,
 ];
 // columns added after v0.4.0: ALTER existing databases in place
-const MIGRATIONS = [['items', 'samples', "TEXT NOT NULL DEFAULT '[]'"], ['notifications', 'msg', 'TEXT'], ['source_state', 'kernel_drops', 'INTEGER NOT NULL DEFAULT 0']];
+const MIGRATIONS = [['items', 'samples', "TEXT NOT NULL DEFAULT '[]'"], ['notifications', 'msg', 'TEXT'], ['source_state', 'kernel_drops', 'INTEGER NOT NULL DEFAULT 0'], ['items', 'reopened_at', 'INTEGER']];
 
 function openDb(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });

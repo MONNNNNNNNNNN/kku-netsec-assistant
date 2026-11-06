@@ -76,7 +76,7 @@ async function mockWazuh({ username = 'board_ro', password = 'wz-test-pass', ale
     const filt = (q.query && q.query.bool && q.query.bool.filter) || [];
     const range = filt.find((f) => f.range) ? filt.find((f) => f.range).range.timestamp : {};
     const not = new Set(((q.query && q.query.bool && q.query.bool.must_not) || []).flatMap((m) => (m.ids ? m.ids.values : [])));
-    const parse = (v) => (/^now-(\d+)([hm])$/.test(v) ? Date.now() - Number(v.match(/\d+/)[0]) * (v.endsWith('h') ? 3600000 : 60000) : Date.parse(v));
+    const parse = (v) => (typeof v === 'number' || range.format === 'epoch_millis' ? Number(v) : /^now-(\d+)([hm])$/.test(v) ? Date.now() - Number(v.match(/\d+/)[0]) * (v.endsWith('h') ? 3600000 : 60000) : Date.parse(v));
     let hits = state.alerts.filter((a) => {
       const t = Date.parse(a._source.timestamp);
       if (range.gte && t < parse(range.gte)) return false;
@@ -109,6 +109,7 @@ async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version
     const raw = await body(req);
     const m = raw ? JSON.parse(raw) : {};
     state.calls.push({ method: m.method, params: m.params, auth: req.headers.authorization || null });
+    if (state.delayMs) await new Promise((r) => setTimeout(r, state.delayMs)); // a slow Zabbix (overlapping cron runs)
     if (state.fail) { res.writeHead(502); return res.end('bad gateway'); }
     const reply = (result) => json(res, 200, { jsonrpc: '2.0', result, id: m.id });
     const error = (code, message, data) => json(res, 200, { jsonrpc: '2.0', error: { code, message, data }, id: m.id });
@@ -117,10 +118,15 @@ async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version
     const auth = state.stripAuth ? '' : req.headers.authorization;
     if (auth !== `Bearer ${token}`) return error(-32602, 'Invalid params.', 'Not authorized.');
     if (m.method === 'host.get') return reply([{ hostid: '10501' }]);
+    if (m.method === 'problem.get') {
+      // open problems: value 1 without a recovery event (problem.get has no selectHosts)
+      return reply(state.events.filter((e) => String(e.value) === '1' && (!e.r_eventid || e.r_eventid === '0')).map((e) => ({ eventid: e.eventid, objectid: e.objectid, clock: e.clock, name: e.name, severity: e.severity })));
+    }
     if (m.method === 'event.get') {
       const p = m.params || {};
       const values = p.value === undefined ? null : [].concat(p.value).map(String);
-      let rows = state.events.filter((e) => (p.eventid_from ? Number(e.eventid) >= Number(p.eventid_from) : true) && (p.time_from ? Number(e.clock) >= Number(p.time_from) : true) && (!values || values.includes(String(e.value))));
+      const ids = p.eventids ? new Set([].concat(p.eventids).map(String)) : null;
+      let rows = state.events.filter((e) => (!ids || ids.has(e.eventid)) && (p.eventid_from ? Number(e.eventid) >= Number(p.eventid_from) : true) && (p.time_from ? Number(e.clock) >= Number(p.time_from) : true) && (!values || values.includes(String(e.value))));
       rows = rows.sort((a, b) => Number(a.eventid) - Number(b.eventid)).slice(0, p.limit || 1000);
       return reply(rows);
     }
