@@ -22,7 +22,7 @@ async function startBoard(over = {}, opts = {}) {
     }
     db.close();
   }
-  const app = await createApp(loaded, { jitter: false, runOnStart: false, batchMs: 10, log: () => {}, ...opts });
+  const app = await createApp(loaded, { jitter: false, runOnStart: false, batchMs: 10, sseIntervalMs: 20, log: () => {}, ...opts });
   return { app, dataDir, loaded };
 }
 
@@ -49,6 +49,7 @@ async function api(app, s, method, p, body, extra = {}) {
 async function sse(app, s) {
   const ctl = new AbortController();
   const events = [];
+  const out = { events, ended: false };
   const r = await fetch(`${app.url}/api/events`, { headers: { cookie: s.cookie }, signal: ctl.signal });
   (async () => {
     const dec = new TextDecoder();
@@ -65,8 +66,9 @@ async function sse(app, s) {
         }
       }
     } catch { /* aborted */ }
+    out.ended = true; // the server closed the stream (or we aborted)
   })();
-  return { events, status: r.status, stop: () => ctl.abort() };
+  return Object.assign(out, { status: r.status, stop: () => ctl.abort() });
 }
 
 async function waitFor(fn, ms = 5000, step = 25) {
@@ -79,4 +81,14 @@ async function waitFor(fn, ms = 5000, step = 25) {
   }
 }
 
-module.exports = { tmp, sleep, startBoard, login, api, sse, waitFor };
+/** Item ids seen in SSE: single "item" events and coalesced "items" batches. */
+function sseItemIds(events) {
+  const ids = new Set();
+  for (const e of events) {
+    if (e.event === 'item') ids.add(e.data.id);
+    if (e.event === 'items') for (const it of [...e.data.full, ...e.data.patch]) ids.add(it.id);
+  }
+  return ids;
+}
+
+module.exports = { tmp, sleep, startBoard, login, api, sse, waitFor, sseItemIds };

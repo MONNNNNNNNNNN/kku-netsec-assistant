@@ -15,6 +15,26 @@ const trust = require('../trust.js');
 const { bumpSource, sourceState, updateSource } = require('../db.js');
 
 const MAX_LINE = 16384;
+const fs = require('node:fs');
+
+/**
+ * Datagrams the kernel dropped for our UDP socket (receive buffer full), from /proc/net/udp
+ * (Linux). UDP gives no other sign of loss, so the health tile shows this number.
+ */
+function udpKernelDrops(port) {
+  let total = null;
+  for (const f of ['/proc/net/udp', '/proc/net/udp6']) {
+    let text;
+    try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    for (const line of text.split('\n').slice(1)) {
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 13) continue;
+      const local = cols[1].split(':');
+      if (parseInt(local[local.length - 1], 16) === port) total = (total || 0) + Number(cols[cols.length - 1]);
+    }
+  }
+  return total;
+}
 
 function ip2int(ip) { return ip.split('.').reduce((a, o) => (a << 8) + Number(o), 0) >>> 0; }
 function normIp(ip) { return String(ip).replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1'); }
@@ -99,6 +119,10 @@ class SyslogCollector {
   }
 
   flushCounters() {
+    if (this.udp) {
+      const k = udpKernelDrops(this.udp.address().port);
+      if (k != null && k !== this.kernelDrops) { this.kernelDrops = k; updateSource(this.db, 'syslog', { kernel_drops: k }); }
+    }
     const p = this.pending;
     if (!p.dropped && !p.unsupported) return;
     if (p.dropped) bumpSource(this.db, 'syslog', 'dropped', p.dropped);
@@ -143,7 +167,9 @@ class SyslogCollector {
     const { bind = '127.0.0.1', port = 5514 } = this.cfg;
     const tasks = [];
     if (this.cfg.udp !== false) {
-      this.udp = dgram.createSocket(net.isIPv6(bind) ? 'udp6' : 'udp4');
+      // a large receive buffer absorbs bursts while the event loop is busy; Linux caps it at
+      // net.core.rmem_max (raise with: sysctl -w net.core.rmem_max=8388608), so prefer TCP
+      this.udp = dgram.createSocket({ type: net.isIPv6(bind) ? 'udp6' : 'udp4', recvBufferSize: this.cfg.recvBufferBytes || 8 * 1024 * 1024 });
       this.udp.on('message', (msg, rinfo) => this.handle(msg.toString('utf8'), rinfo.address));
       this.udp.on('error', () => {});
       tasks.push(new Promise((res, rej) => { this.udp.once('error', rej); this.udp.bind(port, bind, () => { this.udp.removeListener('error', rej); res(); }); }));
@@ -171,4 +197,4 @@ class SyslogCollector {
   }
 }
 
-module.exports = { SyslogCollector, parseSyslog, payloadKind, allowed };
+module.exports = { SyslogCollector, parseSyslog, payloadKind, allowed, udpKernelDrops };

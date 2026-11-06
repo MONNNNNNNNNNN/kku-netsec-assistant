@@ -15,6 +15,8 @@ const crypto = require('node:crypto');
 const N = require('../src/core.js');
 const { request } = require('./net.js');
 const { sevRank } = require('./config.js');
+const { getMeta, setMeta } = require('./db.js');
+const { toItem } = require('./pipeline.js');
 
 const TYPE_DEFAULTS = {
   ntfy: { cloud: false, mode: 'immediate' },
@@ -107,7 +109,9 @@ class Notifier extends EventEmitter {
     this.db = db; this.cfg = cfg; this.now = now; this.senders = senders;
     this.tz = cfg.tzOffsetMinutes ?? 420;
     this.channels = (cfg.notify && cfg.notify.channels || []).map(channelConfig).filter((c) => c.enabled && SENDERS[c.type]);
-    this.digest = new Map(this.channels.map((c) => [c.name, { items: [], capped: 0 }]));
+    // digest / quiet-hour / overflow queue lives in the DB (notify_pending): it survives restarts,
+    // and items pulled by `cli/board.js pull` (system cron) are sent by the running server
+    this.qIns = db.prepare('INSERT OR IGNORE INTO notify_pending(channel, item_id, queued_at) VALUES(?, ?, ?)');
     this.timers = [];
     this.pendingSends = new Set();
   }
@@ -161,10 +165,10 @@ class Notifier extends EventEmitter {
     if (prev && sevRank(item.severity) <= sevRank(prev)) return null; // re-notify on escalation only
     const now = this.now();
     const exceptOk = ch.quietHours && ch.quietHours.except && sevRank(item.severity) >= sevRank(ch.quietHours.except);
-    const dq = this.digest.get(ch.name);
-    if (inQuiet(ch.quietHours, now, this.tz) && !exceptOk) { dq.items.push(item); return null; }
-    if (ch.mode === 'digest') { dq.items.push(item); return null; }
-    if (this.sentSince(ch, now - ch.rateLimit.perMinutes * 60000, false) >= ch.rateLimit.max) { dq.items.push(item); return null; }
+    const queue = () => { this.qIns.run(ch.name, item.id, now); return null; };
+    if (inQuiet(ch.quietHours, now, this.tz) && !exceptOk) return queue();
+    if (ch.mode === 'digest') return queue();
+    if (this.sentSince(ch, now - ch.rateLimit.perMinutes * 60000, false) >= ch.rateLimit.max) return queue();
     return this.send(ch, { title: `NetSec ${item.severity.toUpperCase()}`, text: itemLine(item), severity: item.severity, link: this.boardLink(item), items: [item.id] }, item, false);
   }
 
@@ -172,7 +176,7 @@ class Notifier extends EventEmitter {
     const now = this.now();
     const { dayStart } = localParts(now, this.tz);
     if (this.sentSince(ch, dayStart) >= ch.maxPerDay) {
-      this.digest.get(ch.name).capped++;
+      setMeta(this.db, `notify_capped:${ch.name}`, (getMeta(this.db, `notify_capped:${ch.name}`) || 0) + 1);
       this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, item && item.id != null ? item.id : null, msg.severity, digest ? 1 : 0, 'daily cap');
       return false;
     }
@@ -192,28 +196,42 @@ class Notifier extends EventEmitter {
     }
   }
 
-  /** Send queued items as one message. Items acked/snoozed meanwhile are skipped. */
+  /**
+   * Send the queued items of one channel as one message. Items acked, resolved or snoozed
+   * meanwhile are dropped from the queue; the rest stay queued until a send succeeds
+   * (a failed send or the daily cap keeps them for the next digest).
+   */
   async flushDigest(ch) {
-    const dq = this.digest.get(ch.name);
-    if (!dq || (!dq.items.length && !dq.capped)) return false;
     if (inQuiet(ch.quietHours, this.now(), this.tz)) return false;
-    const fresh = new Map();
-    for (const it of dq.items) {
-      const row = this.db.prepare('SELECT acked_by, snoozed_until, severity, count, title, resolved_at FROM items WHERE id = ?').get(it.id);
-      if (!row || row.acked_by || row.resolved_at || (row.snoozed_until && row.snoozed_until > this.now())) continue;
-      fresh.set(it.id, { ...it, severity: row.severity, count: row.count, title: row.title });
+    const rows = this.db.prepare('SELECT i.* FROM notify_pending q LEFT JOIN items i ON i.id = q.item_id WHERE q.channel = ? ORDER BY q.queued_at').all(ch.name);
+    const del = this.db.prepare('DELETE FROM notify_pending WHERE channel = ? AND item_id = ?');
+    const items = [];
+    for (const r of rows) {
+      if (!r.id) continue;
+      if (r.acked_by || r.resolved_at || (r.snoozed_until && r.snoozed_until > this.now())) { del.run(ch.name, r.id); continue; }
+      items.push(toItem(r));
     }
-    const items = [...fresh.values()].sort((a, b) => sevRank(b.severity) - sevRank(a.severity));
-    const capped = dq.capped;
-    dq.items = []; dq.capped = 0;
+    this.db.prepare('DELETE FROM notify_pending WHERE channel = ? AND item_id NOT IN (SELECT id FROM items)').run(ch.name);
+    items.sort((a, b) => sevRank(b.severity) - sevRank(a.severity));
     if (!items.length) return false;
+    const capped = getMeta(this.db, `notify_capped:${ch.name}`) || 0;
     const top = items[0].severity;
     const lines = items.slice(0, 10).map(itemLine);
     if (items.length > 10) lines.push(`+${items.length - 10} more`);
     if (capped) lines.push(`(${capped} message(s) held back by the daily cap)`);
     const base = (this.cfg.publicUrl || '').replace(/\/+$/, '');
     const merged = { trusted: Object.assign({}, ...items.map((i) => i.trusted)), untrusted: Object.assign({}, ...items.map((i) => i.untrusted)) };
-    return this.send(ch, { title: `NetSec digest: ${items.length} item(s), top ${top.toUpperCase()}`, text: lines.join('\n'), severity: top, link: base || null, items: items.map((i) => i.id), digest: true }, merged, true);
+    const ok = await this.send(ch, { title: `NetSec digest: ${items.length} item(s), top ${top.toUpperCase()}`, text: lines.join('\n'), severity: top, link: base || null, items: items.map((i) => i.id), digest: true }, merged, true);
+    if (ok) {
+      for (const i of items) del.run(ch.name, i.id);
+      setMeta(this.db, `notify_capped:${ch.name}`, 0);
+    }
+    return ok;
+  }
+
+  /** Items waiting for a digest, per channel (for the board and tests). */
+  pending(ch) {
+    return this.db.prepare('SELECT COUNT(*) AS n FROM notify_pending WHERE channel = ?').get(typeof ch === 'string' ? ch : ch.name).n;
   }
 
   /** `cli/board.js test-notify <channel>` */

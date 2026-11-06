@@ -219,7 +219,7 @@ test('LLM queue: on-demand first, budget per hour, oldest automatic entry droppe
   try {
     const q = new LlmQueue({ db, cfg: { url: llm.url, model: 'm', budgetPerHour: 2, queueMax: 3, batch: 2, autoMinSeverity: 'high' }, pipeline, lang: 'en' });
     const ids = [];
-    for (const l of [LOGS[1], LOGS[4], LOGS[5], LOGS[7], LOGS[8]]) {
+    for (const l of [LOGS[1], LOGS[4], LOGS[5], LOGS[7], LOGS[10]]) { // five distinct cards (7 and 8 now share one: same VPN source)
       pipeline.ingest(trust.fortigate(N.parseFortiLog(l)), 'syslog');
     }
     const ch = pipeline.flush();

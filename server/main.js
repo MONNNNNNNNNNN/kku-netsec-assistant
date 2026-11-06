@@ -41,24 +41,51 @@ async function createApp(loaded, opts = {}) {
   const db = db_.openDb(cfg.dataDir);
   const log = opts.log || ((m) => console.error(`[board] ${m}`));
   const app = { cfg, rawConfig: raw, db, version: VERSION, log };
-  const sse = new Set();
+  // live stream: response -> session token hash, so a stream ends when its session does
+  const sse = new Map();
   app.sse = sse;
+  app.sseAdd = (res, tokenHash) => sse.set(res, tokenHash);
+  app.sseDrop = (res) => sse.delete(res);
+  app.sseEndSession = (tokenHash) => { for (const [res, h] of sse) if (h === tokenHash) { res.end(); sse.delete(res); } };
   app.broadcast = (event, data) => {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const res of sse) res.write(msg);
+    for (const res of sse.keys()) res.write(msg);
   };
+  // Pipeline changes are coalesced: at most one "items" event per interval, each card once.
+  // A plain repeat (count +1) only sends {id, count, lastSeen}; a burst of 2,000 lines/s must
+  // not become 2,000 full events/s per browser.
+  const sseMs = opts.sseIntervalMs ?? 1000;
+  let pendingFull = new Map(), pendingPatch = new Map(), pendingNotes = [], sseTimer = null, lastSse = 0;
+  const flushSse = () => {
+    sseTimer = null; lastSse = Date.now();
+    if (pendingFull.size || pendingPatch.size) {
+      app.broadcast('items', { full: [...pendingFull.values()], patch: [...pendingPatch.values()].filter((p) => !pendingFull.has(p.id)) });
+    }
+    if (pendingNotes.length) app.broadcast('notify', { items: pendingNotes.slice(0, 20), more: Math.max(0, pendingNotes.length - 20) });
+    pendingFull = new Map(); pendingPatch = new Map(); pendingNotes = [];
+  };
+  const armSse = () => { if (!sseTimer) sseTimer = setTimeout(flushSse, Math.max(0, lastSse + sseMs - Date.now())); };
+  app.queueItem = (c) => {
+    if (!c.item) return;
+    if (c.repeat && !c.escalated && !c.isNew) pendingPatch.set(c.id, { id: c.id, count: c.item.count, lastSeen: c.item.lastSeen });
+    else pendingFull.set(c.id, c.item);
+    armSse();
+  };
+  app.flushSse = flushSse;
 
   app.pipeline = new Pipeline({ db, cfg, batchMs: opts.batchMs ?? 200 });
   app.notifier = new Notifier({ db, cfg, senders: opts.senders });
   app.llmq = new LlmQueue({ db, cfg: cfg.llm, pipeline: app.pipeline, lang: cfg.lang, chat: opts.chat });
   app.scheduler = new Scheduler({ db, tzOffsetMinutes: cfg.tzOffsetMinutes, jitter: opts.jitter ?? true, backoffBaseMs: opts.backoffBaseMs });
+  const recovered = app.llmq.recover();
+  if (recovered) log(`llm: ${recovered} card(s) left queued by the last run were reset`);
 
   app.pipeline.on('change', (c) => {
-    if (c.item) app.broadcast('item', c.item);
+    app.queueItem(c);
     if (!c.llm) { app.notifier.consider(c); app.llmq.consider(c); }
     else if (c.escalated) app.notifier.consider({ ...c, isNew: false });
   });
-  app.notifier.on('board', (n) => app.broadcast('notify', n));
+  app.notifier.on('board', (n) => { pendingNotes.push(n); armSse(); });
   app.notifier.on('error', (e) => log(`notify ${e.channel}: ${e.error}`));
   app.llmq.on('status', (s) => app.broadcast('llm', s));
   app.scheduler.on('source', (name) => app.broadcast('source', { name, ...db_.sourceState(db, name) }));
@@ -73,7 +100,13 @@ async function createApp(loaded, opts = {}) {
     const v = db.prepare('PRAGMA data_version').get().data_version;
     if (v !== dv) { dv = v; app.broadcast('refresh', {}); }
   }, 2000);
-  const hb = setInterval(() => { for (const res of sse) res.write(': ping\n\n'); }, 25000);
+  // heartbeat; also ends streams whose session was logged out, expired or revoked (user passwd)
+  const sessionAlive = db.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ?');
+  const hb = setInterval(() => {
+    for (const [res, h] of sse) {
+      if (!sessionAlive.get(h, Date.now())) { res.end(); sse.delete(res); } else res.write(': ping\n\n');
+    }
+  }, opts.heartbeatMs ?? 25000);
   const ret = setInterval(() => db_.retention(db, cfg.retentionDays), 6 * 3600000);
   for (const t of [dvTimer, hb, ret]) t.unref();
   db_.retention(db, cfg.retentionDays);
@@ -98,13 +131,13 @@ async function createApp(loaded, opts = {}) {
   }
 
   app.close = async () => {
-    clearInterval(dvTimer); clearInterval(hb); clearInterval(ret);
+    clearInterval(dvTimer); clearInterval(hb); clearInterval(ret); clearTimeout(sseTimer);
     app.scheduler.stop(); app.notifier.stop(); app.llmq.stop();
     if (app.syslog) app.syslog.stop();
     app.pipeline.flush();
     await app.notifier.idle();
     await Promise.allSettled([...app.scheduler.jobs.values()].map((j) => j.running).filter(Boolean));
-    for (const res of sse) res.end();
+    for (const res of sse.keys()) res.end();
     await new Promise((res) => app.server.close(() => res()));
     db.close();
   };

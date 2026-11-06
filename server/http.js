@@ -101,7 +101,7 @@ function createHandler(app) {
     return item;
   }
 
-  function summary() {
+  function summary(role) {
     const now = Date.now();
     const open = db.prepare("SELECT severity, COUNT(*) AS n FROM items WHERE resolved_at IS NULL AND acked_by IS NULL AND (snoozed_until IS NULL OR snoozed_until < ?) GROUP BY severity").all(now);
     const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
@@ -114,7 +114,7 @@ function createHandler(app) {
     }
     const sources = Object.entries(cfg.sources).map(([name, s]) => {
       const st = sourceState(db, name);
-      return { name, enabled: !!s.enabled, mode: name === 'syslog' ? 'push' : 'pull', schedule: s.schedule || null, status: s.enabled ? st.status : 'off', lastRun: st.last_run, lastOk: st.last_ok, nextRun: name === 'syslog' ? null : st.next_run, lastError: st.last_error, fails: st.fails, received: st.received, filtered: st.filtered, dropped: st.dropped, droppedSenders: JSON.parse(st.dropped_senders || '{}'), unsupported: st.unsupported };
+      return { name, enabled: !!s.enabled, mode: name === 'syslog' ? 'push' : 'pull', schedule: s.schedule || null, status: s.enabled ? st.status : 'off', lastRun: st.last_run, lastOk: st.last_ok, nextRun: name === 'syslog' ? null : st.next_run, lastError: st.last_error, fails: st.fails, received: st.received, filtered: st.filtered, dropped: st.dropped, droppedSenders: JSON.parse(st.dropped_senders || '{}'), unsupported: st.unsupported, kernelDrops: st.kernel_drops || 0 };
     });
     for (const h of ['zabbix', 'wazuh', 'generic']) {
       if (!cfg.hooks[h] || !cfg.hooks[h].token) continue;
@@ -122,7 +122,13 @@ function createHandler(app) {
       sources.push({ name: `hook:${h}`, enabled: true, mode: 'push', status: st.received ? 'ok' : 'listening', lastOk: st.last_ok, received: st.received, filtered: st.filtered, dropped: st.dropped, droppedSenders: {} });
     }
     const configs = db.prepare("SELECT value FROM meta WHERE key LIKE 'config:%'").all().map((r) => JSON.parse(r.value)).sort((a, b) => String(b.analyzedAt).localeCompare(String(a.analyzedAt)));
-    return { counts, spark, sparkStart: start, sources, llm: app.llmq.status(), configs, notifyMinSeverity: (cfg.board && cfg.board.notifyMinSeverity) || 'high' };
+    const out = { counts, spark, sparkStart: start, sources, llm: app.llmq.status(), configs, notifyMinSeverity: (cfg.board && cfg.board.notifyMinSeverity) || 'high' };
+    if (role === 'admin') {
+      const day = now - 86400000;
+      const n = (a) => db.prepare('SELECT COUNT(*) AS n FROM user_actions WHERE action = ? AND ts > ?').get(a, day).n;
+      out.security = { loginFailed24h: n('login-failed'), loginLocked24h: n('login-locked'), pendingDigest: Object.fromEntries(app.notifier.channels.map((c) => [c.name, app.notifier.pending(c)])) };
+    }
+    return out;
   }
 
   async function hook(req, res, name) {
@@ -151,15 +157,18 @@ function createHandler(app) {
     ['POST', /^\/api\/login$/, async (req, res) => {
       const b = await readJson(req, 4096);
       const ip = clientIp(req);
-      const r = A.login(db, throttle, b.username, b.password, ip);
+      const r = await A.login(db, throttle, b.username, b.password, ip);
       logAction(db, String(b.username || '').slice(0, 40), r.ok ? 'login' : 'login-failed', null, r.ok ? null : r.error, ip);
+      if (r.lockedNow) logAction(db, String(b.username || '').slice(0, 40), 'login-locked', null, `account+address locked for 15 min after ${A.LOCK_AFTER} failures`, ip);
       if (!r.ok) return send(res, r.status, { error: r.error }, r.retryAfter ? { 'retry-after': String(r.retryAfter) } : {});
       const s = A.createSession(db, r.user.id, cfg.sessionHours || 12);
       send(res, 200, { user: r.user, csrf: s.csrf }, { 'set-cookie': A.sessionCookie(s.token, { secure: cfg.cookieSecure, hours: cfg.sessionHours || 12 }) });
     }],
     ['POST', /^\/api\/logout$/, (req, res) => {
       const s = need(req, 'viewer');
-      A.destroySession(db, session(req).tok);
+      const tok = session(req).tok;
+      A.destroySession(db, tok);
+      app.sseEndSession(A.sha(tok));
       logAction(db, s.user.username, 'logout', null, null, clientIp(req));
       send(res, 200, { ok: true }, { 'set-cookie': A.clearCookie(cfg.cookieSecure) });
     }],
@@ -167,12 +176,15 @@ function createHandler(app) {
     ['GET', /^\/api\/items$/, (req, res) => {
       const s = need(req, 'viewer');
       const day = Date.now() - 86400000;
-      const rows = db.prepare('SELECT * FROM items WHERE resolved_at IS NULL OR resolved_at > ? OR pinned_at IS NOT NULL ORDER BY last_seen DESC LIMIT 600').all(day);
+      // pinned cards always come back, however many newer items exist
+      const rows = db.prepare(`SELECT * FROM items WHERE pinned_at IS NOT NULL
+        UNION SELECT * FROM (SELECT * FROM items WHERE resolved_at IS NULL OR resolved_at > ? ORDER BY last_seen DESC LIMIT 600)
+        ORDER BY last_seen DESC`).all(day);
       const k = s.user.username;
       if (!lastView.has(k) || Date.now() - lastView.get(k) > 600000) { lastView.set(k, Date.now()); logAction(db, k, 'view-items', null, `${rows.length} items`, clientIp(req)); }
       send(res, 200, { items: rows.map(toItem) });
     }],
-    ['GET', /^\/api\/summary$/, (req, res) => { need(req, 'viewer'); send(res, 200, summary()); }],
+    ['GET', /^\/api\/summary$/, (req, res) => { const s = need(req, 'viewer'); send(res, 200, summary(s.user.role)); }],
     ['POST', /^\/api\/items\/(\d+)\/(pin|ack|snooze|explain|view)$/, async (req, res, m) => {
       const action = m[2];
       const s = need(req, action === 'view' ? 'viewer' : 'operator');
@@ -213,8 +225,8 @@ function createHandler(app) {
       const s = need(req, 'viewer');
       res.writeHead(200, { ...SEC_HEADERS, 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
       res.write(`retry: 3000\nevent: hello\ndata: ${JSON.stringify({ user: s.user.username })}\n\n`);
-      app.sse.add(res);
-      req.on('close', () => app.sse.delete(res));
+      app.sseAdd(res, A.sha(session(req).tok));
+      req.on('close', () => app.sseDrop(res));
     }],
     ['POST', /^\/hooks\/(zabbix|wazuh|generic)$/, (req, res, m) => hook(req, res, m[1])],
   ];

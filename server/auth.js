@@ -1,31 +1,44 @@
 'use strict';
 /*
  * Users, sessions, CSRF and login throttling.
- *  - passwords: scrypt (N=16384, r=8, p=1), constant-time compare
+ *  - passwords: scrypt (N=16384, r=8, p=1), constant-time compare. Login checks use the async
+ *    scrypt (thread pool), at most 20 at a time, so a login spray cannot stall syslog intake.
  *  - session: random 32-byte token in an HttpOnly SameSite=Strict cookie; only its sha256 is stored
  *  - CSRF: every state-changing /api request needs the per-session x-csrf-token header
- *  - throttling: per IP and per account; after 5 failures each attempt waits 2^(n-5) s,
- *    after 10 failures the account is locked for 15 minutes
+ *  - throttling, without handing an attacker a way to lock out the admin:
+ *      per IP:              after 5 failures each attempt waits 2^(n-5) s (max 15 min)
+ *      per account + IP:    10 failures lock that pair for 15 minutes
+ *      per account:         backoff only, max 30 s, and not for an address that logged in
+ *                           successfully as this user in the last 30 days
  */
 const crypto = require('node:crypto');
+const { promisify } = require('node:util');
 
+const scryptAsync = promisify(crypto.scrypt);
 const ROLES = ['viewer', 'operator', 'admin'];
 const roleRank = (r) => ROLES.indexOf(r);
 const COOKIE = 'nsb_sid';
-const LOCK_AFTER = 10, SLOW_AFTER = 5, LOCK_MS = 15 * 60000;
+const LOCK_AFTER = 10, SLOW_AFTER = 5, LOCK_MS = 15 * 60000, ACCOUNT_MAX_WAIT = 30000, KNOWN_MS = 30 * 86400000, MAX_CHECKS = 20;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const SCRYPT = { N: 16384, r: 8, p: 1 };
 
+/** Sync hash: CLI and setup only (never on the request path). */
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16);
-  const h = crypto.scryptSync(String(pw), salt, 64, { N: 16384, r: 8, p: 1 });
+  const h = crypto.scryptSync(String(pw), salt, 64, SCRYPT);
   return `scrypt$16384$8$1$${salt.toString('base64')}$${h.toString('base64')}`;
 }
-function verifyPassword(pw, stored) {
+function parseHash(stored) {
   const [alg, N, r, p, salt, hash] = String(stored).split('$');
-  if (alg !== 'scrypt') return false;
-  const want = Buffer.from(hash, 'base64');
-  const got = crypto.scryptSync(String(pw), Buffer.from(salt, 'base64'), want.length, { N: Number(N), r: Number(r), p: Number(p) });
-  return crypto.timingSafeEqual(want, got);
+  return alg === 'scrypt' ? { opts: { N: Number(N), r: Number(r), p: Number(p) }, salt: Buffer.from(salt, 'base64'), want: Buffer.from(hash, 'base64') } : null;
+}
+function verifyPassword(pw, stored) {
+  const h = parseHash(stored);
+  return !!h && crypto.timingSafeEqual(h.want, crypto.scryptSync(String(pw), h.salt, h.want.length, h.opts));
+}
+async function verifyPasswordAsync(pw, stored) {
+  const h = parseHash(stored);
+  return !!h && crypto.timingSafeEqual(h.want, await scryptAsync(String(pw), h.salt, h.want.length, h.opts));
 }
 const DUMMY = hashPassword(crypto.randomBytes(8).toString('hex')); // equalises timing for unknown users
 
@@ -52,7 +65,9 @@ function setPassword(db, username, password) {
 }
 
 class Throttle {
-  constructor(now = () => Date.now()) { this.ip = new Map(); this.now = now; }
+  constructor(now = () => Date.now(), maxChecks = MAX_CHECKS) {
+    this.ip = new Map(); this.pair = new Map(); this.now = now; this.active = 0; this.maxChecks = maxChecks;
+  }
   /** ms the caller must still wait, 0 if allowed */
   wait(ip) {
     const r = this.ip.get(ip);
@@ -66,29 +81,56 @@ class Throttle {
     if (this.ip.size > 10000) this.ip.delete(this.ip.keys().next().value);
   }
   ok(ip) { this.ip.delete(ip); }
+  pairKey(user, ip) { return JSON.stringify([user, ip]); }
+  pairWait(user, ip) {
+    const r = this.pair.get(this.pairKey(user, ip));
+    return r ? Math.max(0, r.until - this.now()) : 0;
+  }
+  /** returns true when this failure locks the pair */
+  pairFail(user, ip) {
+    const k = this.pairKey(user, ip);
+    const r = this.pair.get(k) || { n: 0, until: 0 };
+    r.n++;
+    const locked = r.n >= LOCK_AFTER;
+    if (locked) { r.until = this.now() + LOCK_MS; r.n = 0; }
+    this.pair.set(k, r);
+    if (this.pair.size > 10000) this.pair.delete(this.pair.keys().next().value);
+    return locked;
+  }
+  pairOk(user, ip) { this.pair.delete(this.pairKey(user, ip)); }
+  acquire() { if (this.active >= this.maxChecks) return false; this.active++; return true; }
+  release() { this.active = Math.max(0, this.active - 1); }
 }
 
 /**
- * Returns {ok:true, user} or {ok:false, status, error, retryAfter}.
+ * Returns {ok:true, user} or {ok:false, status, error, retryAfter, lockedNow}.
  * The same error text for unknown user and wrong password.
  */
-function login(db, throttle, username, password, ip, now = Date.now()) {
+async function login(db, throttle, username, password, ip, now = Date.now()) {
+  const name = String(username || '');
   const ipWait = throttle.wait(ip);
   if (ipWait > 0) return { ok: false, status: 429, error: 'too many attempts, wait', retryAfter: Math.ceil(ipWait / 1000) };
-  const u = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || ''));
-  if (u && u.locked_until > now) return { ok: false, status: 429, error: 'account locked, try later', retryAfter: Math.ceil((u.locked_until - now) / 1000) };
-  const good = verifyPassword(String(password || ''), u ? u.pass_hash : DUMMY) && !!u;
+  const pairWait = throttle.pairWait(name, ip);
+  if (pairWait > 0) return { ok: false, status: 429, error: 'locked for this address, try later', retryAfter: Math.ceil(pairWait / 1000) };
+  const u = db.prepare('SELECT * FROM users WHERE username = ?').get(name);
+  const known = u && db.prepare('SELECT 1 FROM login_known WHERE user_id = ? AND ip = ? AND last_ok > ?').get(u.id, String(ip), now - KNOWN_MS);
+  if (u && !known && u.locked_until > now) return { ok: false, status: 429, error: 'too many failures for this account, wait', retryAfter: Math.ceil((u.locked_until - now) / 1000) };
+  if (!throttle.acquire()) return { ok: false, status: 503, error: 'busy, retry', retryAfter: 1 };
+  let good;
+  try { good = (await verifyPasswordAsync(String(password || ''), u ? u.pass_hash : DUMMY)) && !!u; } finally { throttle.release(); }
   if (!good) {
     throttle.fail(ip);
+    const lockedNow = throttle.pairFail(name, ip);
     if (u) {
       const failed = u.failed + 1;
-      const until = failed >= LOCK_AFTER ? now + LOCK_MS : failed >= SLOW_AFTER ? now + 1000 * 2 ** (failed - SLOW_AFTER) : 0;
-      db.prepare('UPDATE users SET failed = ?, locked_until = ? WHERE id = ?').run(failed >= LOCK_AFTER ? 0 : failed, until, u.id);
+      const until = failed >= SLOW_AFTER ? now + Math.min(ACCOUNT_MAX_WAIT, 1000 * 2 ** (failed - SLOW_AFTER)) : 0;
+      db.prepare('UPDATE users SET failed = ?, locked_until = ? WHERE id = ?').run(failed, until, u.id);
     }
-    return { ok: false, status: 401, error: 'wrong username or password' };
+    return { ok: false, status: 401, error: 'wrong username or password', lockedNow };
   }
-  throttle.ok(ip);
+  throttle.ok(ip); throttle.pairOk(name, ip);
   db.prepare('UPDATE users SET failed = 0, locked_until = 0 WHERE id = ?').run(u.id);
+  db.prepare('INSERT INTO login_known(user_id, ip, last_ok) VALUES(?, ?, ?) ON CONFLICT(user_id, ip) DO UPDATE SET last_ok = excluded.last_ok').run(u.id, String(ip), now);
   return { ok: true, user: { id: u.id, username: u.username, role: u.role } };
 }
 
@@ -119,4 +161,4 @@ function sessionCookie(token, { secure, hours }) {
 }
 const clearCookie = (secure) => `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
 
-module.exports = { ROLES, roleRank, COOKIE, hashPassword, verifyPassword, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, LOCK_AFTER, SLOW_AFTER };
+module.exports = { ROLES, roleRank, COOKIE, hashPassword, verifyPassword, verifyPasswordAsync, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, LOCK_AFTER, SLOW_AFTER, ACCOUNT_MAX_WAIT };

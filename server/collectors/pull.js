@@ -3,7 +3,7 @@
  * Pull collectors (run by the scheduler or once from system cron). Read-only by design:
  *  - wazuh:      Wazuh indexer `POST <index>/_search` (port 9200, not the 55000 manager API),
  *                with a read-only indexer user (cluster_composite_ops_ro + read on wazuh-alerts*).
- *  - zabbix:     JSON-RPC `event.get` (problem events, with host names) using
+ *  - zabbix:     JSON-RPC `event.get` (problem and recovery events, with host names) using
  *                `Authorization: Bearer <API token>` (Zabbix 6.4+; the `auth` field was removed in 7.2).
  *  - configdrop: a folder that an existing backup job writes into (no device privilege needed).
  *  - fortigate:  REST config backup, opt-in. FortiOS 7.6+ needs POST (GET returns 405);
@@ -66,7 +66,7 @@ async function pullZabbix(cfg, cursor) {
   for (let page = 0; page < 10; page++) {
     const params = {
       output: ['eventid', 'clock', 'severity', 'name', 'objectid', 'acknowledged', 'opdata', 'r_eventid'],
-      source: 0, object: 0, value: 1,
+      source: 0, object: 0, value: [0, 1], // 1 = problem, 0 = recovery (resolves the card)
       selectHosts: ['host', 'name'], selectTags: ['tag', 'value'],
       sortfield: ['eventid'], sortorder: 'ASC', limit,
       ...(from ? { eventid_from: String(from) } : { time_from: String(Math.floor(Date.now() / 1000) - (cfg.initialLookbackSec || 3600)) }),

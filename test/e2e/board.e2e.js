@@ -27,7 +27,7 @@ test('board in a real browser: login, live cards, expand/collapse, pin, ack, sno
   const { app } = await startBoard({
     lang: 'en',
     sources: {
-      syslog: { enabled: true, port: 0, allow: ['127.0.0.1'], minSeverity: 'low' },
+      syslog: { enabled: true, port: 0, allow: ['127.0.0.1'], minSeverity: 'low', ratePerSec: 100000 },
       wazuh: { enabled: true, schedule: '@every 1h', url: wz.url, username: 'ro', password: 'e2e-wz-pass' },
       zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'e2e-zbx-tok' },
       configdrop: { enabled: true, schedule: '@every 1h', dir: dropDir },
@@ -112,6 +112,13 @@ test('board in a real browser: login, live cards, expand/collapse, pin, ack, sno
     await page.click('.chips button:has-text("wazuh")');
     await page.waitForFunction(() => [...document.querySelectorAll('main .masonry')[1].querySelectorAll('.card .src-badge')].every((b) => b.textContent.includes('wazuh')));
     await page.click('.chips button:has-text("wazuh")');
+
+    // F3: a 2,000-line burst must not freeze the page (coalesced SSE + in-place count patches)
+    await page.evaluate(() => { window.__longest = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__longest = Math.max(window.__longest, e.duration); }).observe({ type: 'longtask', buffered: false }); });
+    await M.sendSyslog(Array(2000).fill(LOGS[17]), { port: app.syslogAddress.tcp.port, proto: 'tcp' });
+    await page.waitForFunction(() => [...document.querySelectorAll('#app .card')].some((c) => c.textContent.includes('PHP.CGI') && /×2000/.test(c.textContent)), null, { timeout: 15000 });
+    const longest = await page.evaluate(() => window.__longest);
+    assert.ok(longest < 200, `main thread blocked ${longest} ms during the burst`);
 
     // live: a new critical event -> grouped toast + bell count -> drawer with collapsible group
     await M.sendSyslog([LOGS[16], LOGS[18]], { port: app.syslogAddress.udp.port });

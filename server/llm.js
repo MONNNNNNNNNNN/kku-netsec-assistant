@@ -47,12 +47,15 @@ async function classifyUrl(base) {
 
 const ENDPOINT = new Map();
 /**
- * opts: { allowRemote, allowHttpLan, remoteHint, httpHint } — hints name the override
- * in the error text (CLI flags by default, config keys in the server).
+ * opts: { allowRemote, allowHttpLan, remoteHint, httpHint, cacheMs } — hints name the override
+ * in the error text (CLI flags by default, config keys in the server). The verdict is cached
+ * for cacheMs (default: process lifetime, right for the short-lived CLI; the server passes
+ * 5 minutes so a host whose DNS moves to a public address is caught).
  */
 async function checkEndpoint(base, opts = {}) {
   const key = `${base}|${!!opts.allowRemote}|${!!opts.allowHttpLan}`;
-  if (ENDPOINT.has(key)) return ENDPOINT.get(key);
+  const hit = ENDPOINT.get(key);
+  if (hit && (opts.cacheMs == null || Date.now() - hit.at < opts.cacheMs)) return hit.r;
   const { url: u, host, addrs, cls } = await classifyUrl(base);
   const override = [];
   if (cls === 'remote') {
@@ -64,7 +67,7 @@ async function checkEndpoint(base, opts = {}) {
     override.push('allow-http-lan');
   }
   const r = { endpoint_class: cls, endpoint_overrides: override };
-  ENDPOINT.set(key, r);
+  ENDPOINT.set(key, { r, at: Date.now() });
   return r;
 }
 

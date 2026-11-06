@@ -119,14 +119,23 @@ async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version
     if (m.method === 'host.get') return reply([{ hostid: '10501' }]);
     if (m.method === 'event.get') {
       const p = m.params || {};
-      let rows = state.events.filter((e) => (p.eventid_from ? Number(e.eventid) >= Number(p.eventid_from) : true) && (p.time_from ? Number(e.clock) >= Number(p.time_from) : true));
+      const values = p.value === undefined ? null : [].concat(p.value).map(String);
+      let rows = state.events.filter((e) => (p.eventid_from ? Number(e.eventid) >= Number(p.eventid_from) : true) && (p.time_from ? Number(e.clock) >= Number(p.time_from) : true) && (!values || values.includes(String(e.value))));
       rows = rows.sort((a, b) => Number(a.eventid) - Number(b.eventid)).slice(0, p.limit || 1000);
       return reply(rows);
     }
     error(-32601, 'Method not found.', `Incorrect API "${m.method}".`);
   });
   await listen(server, port, host);
-  return { server, state, url: url(server), add: (n = 1) => { for (let i = 0; i < n; i++) state.events.push(zabbixEvent(state.events.length)); } };
+  /** Recovery (OK) event for a problem: value "0", same trigger and hosts; the problem gets r_eventid. */
+  const recover = (problemEventid) => {
+    const p = state.events.find((e) => e.eventid === String(problemEventid));
+    const ok = { ...p, eventid: String(++zbxSeq), value: '0', severity: '0', clock: String(Math.floor(Date.now() / 1000)), r_eventid: '0' };
+    p.r_eventid = ok.eventid;
+    state.events.push(ok);
+    return ok;
+  };
+  return { server, state, url: url(server), recover, add: (n = 1) => { for (let i = 0; i < n; i++) state.events.push(zabbixEvent(state.events.length)); } };
 }
 
 // ---------------------------------------------------------------- notification sinks (ntfy, Telegram, LINE, webhook)

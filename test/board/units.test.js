@@ -164,11 +164,12 @@ test('finalSeverity: the guarded LLM verdict can raise but never lower the deter
   assert.equal(finalSeverity('high', null), 'high');
 });
 
-test('auth: scrypt hashes, sessions, CSRF token, per-IP backoff and account lockout after 10 failures', () => {
+test('auth: scrypt, sessions, per-IP backoff, per account+address lock, account backoff capped at 30 s and skipped for known addresses, concurrency cap', async () => {
   const h = A.hashPassword('correct horse battery');
   assert.match(h, /^scrypt\$16384\$8\$1\$/);
   assert.ok(A.verifyPassword('correct horse battery', h));
-  assert.ok(!A.verifyPassword('wrong', h));
+  assert.ok(await A.verifyPasswordAsync('correct horse battery', h));
+  assert.ok(!(await A.verifyPasswordAsync('wrong', h)));
   assert.notEqual(A.hashPassword('correct horse battery'), h, 'salted');
   const db = db_.openDb(tmp());
   A.addUser(db, 'alice', 'alice-password-1', 'operator');
@@ -176,18 +177,35 @@ test('auth: scrypt hashes, sessions, CSRF token, per-IP backoff and account lock
   assert.throws(() => A.addUser(db, 'bad name!', 'long-enough-pw', 'viewer'), /username/);
   let now = 1_000_000;
   const th = new A.Throttle(() => now);
-  assert.equal(A.login(db, th, 'alice', 'alice-password-1', '10.0.0.1', now).ok, true);
-  for (let i = 0; i < 4; i++) assert.equal(A.login(db, th, 'alice', 'nope', '10.0.0.2', now).status, 401);
-  assert.equal(A.login(db, th, 'alice', 'nope', '10.0.0.2', now).status, 401); // 5th failure arms the backoff
-  assert.equal(A.login(db, th, 'alice', 'alice-password-1', '10.0.0.2', now).status, 429, 'same IP must wait');
-  assert.equal(A.login(db, th, 'alice', 'alice-password-1', '10.0.0.3', now).status, 429, 'account backoff applies from any IP');
-  // ten failures in total (spread over IPs, waiting out the backoff) lock the account for 15 minutes
-  for (let i = 0; i < 5; i++) { now += 3600000; A.login(db, th, 'alice', 'nope', `10.0.1.${i}`, now); }
-  const locked = A.login(db, th, 'alice', 'alice-password-1', '10.0.2.1', now + 1000);
-  assert.equal(locked.status, 429);
-  assert.match(locked.error, /locked/);
-  assert.equal(A.login(db, th, 'alice', 'alice-password-1', '10.0.2.1', now + 16 * 60000).ok, true, 'unlocks after 15 minutes');
-  assert.equal(A.login(db, th, 'ghost', 'x', '10.0.3.1', now).error, 'wrong username or password', 'same message for unknown users');
+  const login = (pw, ip) => A.login(db, th, 'alice', pw, ip, now);
+  assert.equal((await login('alice-password-1', '10.0.0.1')).ok, true, '10.0.0.1 is now a known address');
+  for (let i = 0; i < 5; i++) assert.equal((await login('nope', '10.0.0.2')).status, 401);
+  assert.equal((await login('alice-password-1', '10.0.0.2')).status, 429, 'per-IP backoff');
+  const acct = await login('alice-password-1', '10.0.0.3');
+  assert.equal(acct.status, 429, 'account backoff for a new address');
+  assert.ok(acct.retryAfter <= 30);
+  assert.equal((await login('alice-password-1', '10.0.0.1')).ok, true, 'F6: the known address is not blocked by attacks on the account');
+  // the account backoff never exceeds 30 s, however many failures
+  for (let i = 0; i < 25; i++) { now += 3600000; await login('nope', `10.0.1.${i}`); }
+  const row = db.prepare('SELECT failed, locked_until FROM users WHERE username = ?').get('alice');
+  assert.equal(row.failed, 25);
+  assert.ok(row.locked_until - now <= A.ACCOUNT_MAX_WAIT, 'capped at 30 s, no 15-minute account lock');
+  // account + address: 10 failures lock only that pair, for 15 minutes
+  let last;
+  for (let i = 0; i < 10; i++) { now += 3600000; last = await login('nope', '10.0.5.5'); }
+  assert.equal(last.lockedNow, true);
+  now += 60000; // past the per-IP (32 s) and account (30 s) backoff, inside the 15-minute pair lock
+  const pair = await login('alice-password-1', '10.0.5.5');
+  assert.equal(pair.status, 429);
+  assert.match(pair.error, /locked for this address/);
+  assert.equal((await login('alice-password-1', '10.0.6.6')).ok, true, 'another address still works');
+  now += 15 * 60000;
+  assert.equal((await login('alice-password-1', '10.0.5.5')).ok, true, 'the pair unlocks after 15 minutes');
+  assert.equal((await A.login(db, th, 'ghost', 'x', '10.0.3.1', now)).error, 'wrong username or password', 'same message for unknown users');
+  // at most maxChecks password checks run at once; the rest get 503 instead of queuing on the CPU
+  const th1 = new A.Throttle(() => now, 1);
+  const [a, b] = await Promise.all([A.login(db, th1, 'alice', 'nope', '10.9.0.1', now), A.login(db, th1, 'alice', 'nope', '10.9.0.2', now)]);
+  assert.deepEqual([a.status, b.status].sort(), [401, 503]);
   const s = A.createSession(db, 1, 1, now);
   assert.equal(A.getSession(db, s.token, now).user.username, 'alice');
   assert.equal(A.getSession(db, s.token, now + 2 * 3600000), null, 'expires');

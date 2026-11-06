@@ -124,6 +124,11 @@ h2.sec .n { background: var(--tile); border-radius: 999px; padding: 0 8px; font-
 .verdict { margin-top: 10px; background: var(--tile-2); border-radius: var(--r-s); padding: 10px 12px; font-size: 13px; }
 .verdict b { text-transform: capitalize; }
 .verdict ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+.samples { margin-top: 10px; font-size: 13px; }
+.samples summary { cursor: pointer; color: var(--ink-2); font-weight: 600; }
+.sample { margin-top: 6px; padding: 6px 8px; border-radius: 10px; background: var(--tile-2); }
+.sample.flagged { box-shadow: inset 3px 0 0 var(--sev-critical); }
+.tile .warn { color: var(--sev-critical); font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
 .actions .btn { box-shadow: none; background: var(--tile-2); padding: 5px 11px; font-size: 12.5px; }
 .actions .btn[aria-pressed="true"] { background: var(--ink); color: var(--tile); }

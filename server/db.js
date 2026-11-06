@@ -21,7 +21,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS items (
      id INTEGER PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL,
      severity TEXT NOT NULL, det_severity TEXT NOT NULL, title TEXT NOT NULL,
-     trusted TEXT NOT NULL, untrusted TEXT NOT NULL, flags TEXT NOT NULL, floor TEXT NOT NULL DEFAULT '[]',
+     trusted TEXT NOT NULL, untrusted TEXT NOT NULL, flags TEXT NOT NULL, floor TEXT NOT NULL DEFAULT '[]', samples TEXT NOT NULL DEFAULT '[]',
      count INTEGER NOT NULL DEFAULT 1, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL,
      pinned_by TEXT, pinned_at INTEGER, acked_by TEXT, acked_at INTEGER, snoozed_until INTEGER, snoozed_by TEXT,
      resolved_at INTEGER, link TEXT, llm TEXT, llm_state TEXT NOT NULL DEFAULT 'none', notified_severity TEXT)`,
@@ -32,7 +32,11 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS user_actions (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT, ip TEXT, action TEXT NOT NULL, item_id INTEGER, detail TEXT)`,
   `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, channel TEXT NOT NULL, msg TEXT, item_id INTEGER, severity TEXT, ok INTEGER, digest INTEGER NOT NULL DEFAULT 0, error TEXT)`,
   `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
+  `CREATE TABLE IF NOT EXISTS login_known (user_id INTEGER NOT NULL, ip TEXT NOT NULL, last_ok INTEGER NOT NULL, PRIMARY KEY (user_id, ip))`,
+  `CREATE TABLE IF NOT EXISTS notify_pending (channel TEXT NOT NULL, item_id INTEGER NOT NULL, queued_at INTEGER NOT NULL, PRIMARY KEY (channel, item_id))`,
 ];
+// columns added after v0.4.0: ALTER existing databases in place
+const MIGRATIONS = [['items', 'samples', "TEXT NOT NULL DEFAULT '[]'"], ['notifications', 'msg', 'TEXT'], ['source_state', 'kernel_drops', 'INTEGER NOT NULL DEFAULT 0']];
 
 function openDb(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -44,6 +48,9 @@ function openDb(dataDir) {
     const db = new DatabaseSync(file);
     db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;');
     for (const s of SCHEMA) db.exec(s);
+    for (const [table, col, type] of MIGRATIONS) {
+      if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
     for (const f of [file, `${file}-wal`, `${file}-shm`]) {
       try { if (fs.existsSync(f)) fs.chmodSync(f, 0o600); } catch { /* read-only fs: best effort */ }
     }

@@ -1,8 +1,8 @@
 # NetSec Board
 #   Demo (mocks, no real device):  docker compose --profile demo up -d --build
 #                                   open http://127.0.0.1:8480  (admin / demo-admin-pass)
-#   Production:                     cp netsec.example.json netsec.json   # edit: listen 0.0.0.0, dataDir /data
-#                                   docker compose --profile prod run --rm board node cli/board.js init
+#   Production:                     cp netsec.example.json netsec.json   # enable sources; listen/data paths are set below
+#                                   mkdir -p backups && docker compose --profile prod run --rm board node cli/board.js init
 #                                   docker compose --profile prod up -d
 #   Optional local LLM:             add --profile llm (Ollama, CPU; pull a model first)
 # The UI is published on 127.0.0.1 only; put Caddy/nginx with TLS in front (deploy/Caddyfile.example).
@@ -24,6 +24,11 @@ services:
     env_file:
       - path: .env            # secrets referenced as env:NAME in netsec.json
         required: false
+    environment:              # container paths win over the file, so the example config works unedited
+      NETSEC_LISTEN_HOST: 0.0.0.0
+      NETSEC_DATA_DIR: /data
+      NETSEC_BACKUP_DIR: /backups
+      NETSEC_SYSLOG_BIND: 0.0.0.0
     volumes:
       - ./netsec.json:/config/netsec.json:ro
       - board-data:/data

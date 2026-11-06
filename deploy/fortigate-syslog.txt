@@ -4,7 +4,8 @@
 config log syslogd setting
     set status enable
     set server "10.0.0.50"          # the board's management-VLAN IP (SYSLOG_BIND)
-    set mode reliable               # TCP (RFC 6587). "udp" also works but can lose messages
+    set mode reliable               # TCP (RFC 6587). "udp" can lose bursts: the board's syslog tile
+                                    # shows kernel UDP drops; on the board host: sysctl -w net.core.rmem_max=8388608
     set port 5514
     set format rfc5424              # or "default". csv and cef are rejected by the board
     set facility local7

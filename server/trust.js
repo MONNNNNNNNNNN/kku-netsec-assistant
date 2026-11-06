@@ -66,7 +66,9 @@ function fortigate(f, now = Date.now()) {
     source: 'fortigate', kind, ts: ts > 1e12 && ts < now + 86400000 ? ts : now,
     title: `${kind}${what ? `: ${what}` : ''}`,
     trusted, untrusted, detSeverity: det,
-    fingerprint: fingerprint('fortigate', kind, [f.devid, f.logid, f.srcip || f.remip, f.dstip, f.attack || f.virus || f.policyid, f.user]),
+    // grouping keys are device-generated only: attacker-chosen fields (user names, URLs, agents)
+    // must not split one attack into thousands of cards (they are kept as samples instead)
+    fingerprint: fingerprint('fortigate', kind, [f.devid, f.logid, f.srcip || f.remip, f.dstip, f.attack || f.virus || f.policyid]),
     link: null,
   });
 }
@@ -111,7 +113,8 @@ function wazuh(alert, id, opts = {}, now = Date.now()) {
     source: 'wazuh', kind: 'alert', ts,
     title: `${r.description || `rule ${r.id}`}${alert.agent && alert.agent.name ? ` (${alert.agent.name})` : ''}`,
     trusted, untrusted, detSeverity: wazuhSev(r.level),
-    fingerprint: fingerprint('wazuh', 'alert', [r.id, alert.agent && alert.agent.id, flat['data.srcip'], flat['data.dstuser'] || flat['data.srcuser']]),
+    // no user names in the key: a brute force with random names stays one card
+    fingerprint: fingerprint('wazuh', 'alert', [r.id, alert.agent && alert.agent.id, flat['data.srcip']]),
     link: opts.dashboardUrl ? `${opts.dashboardUrl.replace(/\/+$/, '')}/app/threat-hunting` : null,
   });
 }
@@ -125,13 +128,16 @@ function zabbixSevIndex(s) {
   if (Number.isInteger(n) && n >= 0 && n <= 5) return n;
   return ZBX_NAMES[String(s).toLowerCase()] ?? 0;
 }
-/** ev: event.get row ({eventid, clock, severity, name, objectid, hosts, tags, opdata}) or webhook payload */
+/**
+ * ev: event.get row ({eventid, clock, severity, name, objectid, value, hosts, tags, opdata}) or webhook payload.
+ * value "0" (recovery event, pull mode) or status RESOLVED/OK (webhook) resolves the problem card.
+ */
 function zabbix(ev, opts = {}, now = Date.now()) {
   const sev = zabbixSevIndex(ev.severity);
   const hosts = Array.isArray(ev.hosts) ? ev.hosts.map((h) => h.name || h.host).join(', ') : ev.host || '';
   const tags = Array.isArray(ev.tags) ? ev.tags.map((t) => `${t.tag}${t.value ? `:${t.value}` : ''}`).join(', ') : ev.tags || '';
   const triggerid = ev.objectid || ev.triggerid || '';
-  const trusted = { eventid: ev.eventid, triggerid, severity: sev, severity_name: Object.keys(ZBX_NAMES)[sev], clock: ev.clock, acknowledged: ev.acknowledged, status: ev.status };
+  const trusted = { eventid: ev.eventid, triggerid, severity: sev, severity_name: Object.keys(ZBX_NAMES)[sev], clock: ev.clock, acknowledged: ev.acknowledged, status: ev.status, value: ev.value, r_eventid: ev.r_eventid };
   const untrusted = { name: ev.name, hosts, opdata: ev.opdata, tags };
   const base = (opts.url || '').replace(/\/api_jsonrpc\.php$/, '').replace(/\/+$/, '');
   return finish({
@@ -140,7 +146,7 @@ function zabbix(ev, opts = {}, now = Date.now()) {
     trusted, untrusted, detSeverity: ZBX_SEV[sev],
     fingerprint: fingerprint('zabbix', 'problem', [triggerid || ev.name, hosts]),
     link: base && triggerid ? `${base}/tr_events.php?triggerid=${encodeURIComponent(triggerid)}&eventid=${encodeURIComponent(ev.eventid || '')}` : null,
-    resolve: /^(resolved|ok|0)$/i.test(String(ev.status ?? '').trim()) && ev.status !== undefined,
+    resolve: String(ev.value) === '0' || (ev.status !== undefined && /^(resolved|ok|0)$/i.test(String(ev.status).trim())),
   });
 }
 

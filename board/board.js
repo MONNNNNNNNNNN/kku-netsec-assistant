@@ -24,6 +24,9 @@
       markRead: 'อ่านทั้งหมด', desktop: 'เปิดการแจ้งเตือนบนเดสก์ท็อป', desktopOn: 'เปิดการแจ้งเตือนเดสก์ท็อปแล้ว', newFrom: (n, s) => `ใหม่ ${n} รายการจาก ${s}`,
       close: 'ปิด', sources: 'แหล่งข้อมูล', severity: 'ความรุนแรง', ago: (s) => `${s} ที่แล้ว`, inT: (s) => `อีก ${s}`, never: 'ยังไม่เคย',
       queuedAt: (n) => `เข้าคิว AI แล้ว (ลำดับที่ ${n})`, firstSeen: 'พบครั้งแรก', lastSeen: 'ล่าสุด',
+      kernelDrops: 'UDP ตกหล่นที่ kernel', kernelHint: 'บัฟเฟอร์รับ UDP เต็ม: ใช้ TCP (set mode reliable) หรือเพิ่ม net.core.rmem_max',
+      samples: (n) => `ตัวอย่างข้อมูลจากผู้ส่ง (${n})`, first: 'แรกสุด', flagged: 'มีการพยายามหลอก AI', more: (n) => `และอีก ${n} รายการ`,
+      security: 'ความปลอดภัยการเข้าสู่ระบบ (24 ชม.)', failed: 'ล็อกอินผิด', locked: 'ล็อกบัญชี+ที่อยู่', pending: 'รอส่งแบบสรุป',
       sev: { critical: 'วิกฤต', high: 'สูง', medium: 'กลาง', low: 'ต่ำ', info: 'ข้อมูล' },
       st: { ok: 'ปกติ', listening: 'รอรับ', running: 'กำลังดึง', degraded: 'มีปัญหา', down: 'ล่ม', off: 'ปิด', idle: 'รอ' },
     },
@@ -43,6 +46,9 @@
       markRead: 'Mark all read', desktop: 'Enable desktop notifications', desktopOn: 'Desktop notifications on', newFrom: (n, s) => `${n} new from ${s}`,
       close: 'Close', sources: 'Sources', severity: 'Severity', ago: (s) => `${s} ago`, inT: (s) => `in ${s}`, never: 'never',
       queuedAt: (n) => `Queued for AI (position ${n})`, firstSeen: 'first seen', lastSeen: 'last seen',
+      kernelDrops: 'UDP lost in the kernel', kernelHint: 'UDP receive buffer overflowed: use TCP (set mode reliable) or raise net.core.rmem_max',
+      samples: (n) => `Attacker-controllable samples (${n})`, first: 'first', flagged: 'tried to manipulate AI', more: (n) => `and ${n} more`,
+      security: 'Login security (24 h)', failed: 'failed logins', locked: 'account+address locks', pending: 'waiting for digest',
       sev: { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info' },
       st: { ok: 'ok', listening: 'listening', running: 'pulling', degraded: 'degraded', down: 'down', off: 'off', idle: 'idle' },
     },
@@ -250,6 +256,7 @@
           h('span', null, `${t('received')} ${src.received || 0}`),
           src.dropped ? h('span', { class: 'warn', title: dropped }, `${t('dropped')}: ${src.dropped}`) : null,
           src.unsupported ? h('span', { class: 'warn' }, `${t('unsupported')}: ${src.unsupported}`) : null,
+          src.kernelDrops ? h('span', { class: 'warn', title: t('kernelHint') }, `${t('kernelDrops')}: ${src.kernelDrops}`) : null,
           src.lastError ? h('span', { class: 'warn', title: src.lastError }, src.lastError.slice(0, 60)) : null),
         src.mode === 'pull' && canOperate() ? h('button', { class: 'btn', onclick: (e) => pullNow(src.name, e.currentTarget) }, t('pullNow')) : null));
     }
@@ -266,6 +273,13 @@
       l.enabled ? [h('div', null, h('b', null, l.model)), h('div', { class: 'bar', role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': l.budgetPerHour, 'aria-valuenow': l.used, 'aria-label': t('budget') }, h('i', { style: { width: `${Math.min(100, (l.used / l.budgetPerHour) * 100)}%` } })),
         h('div', { class: 'muted' }, `${l.used}/${l.budgetPerHour} ${t('budget')} · ${t('inQueue')} ${l.queued}`), l.lastError ? h('div', { class: 'muted', title: l.lastError }, `⚠ ${l.lastError.slice(0, 50)}`) : null]
         : h('div', { class: 'muted' }, t('llmOff'))));
+    if (sm.security) {
+      const pend = Object.values(sm.security.pendingDigest || {}).reduce((a, b) => a + b, 0);
+      tiles.push(h('div', { class: 'tile' }, h('h3', null, t('security')),
+        h('div', { class: 'meta' }, h('div', null, `${t('failed')}: ${sm.security.loginFailed24h}`),
+          h('div', { class: sm.security.loginLocked24h ? 'warn' : '' }, `${t('locked')}: ${sm.security.loginLocked24h}`),
+          h('div', { class: 'muted' }, `${t('pending')}: ${pend}`))));
+    }
     els.hero.replaceChildren(...tiles);
   }
 
@@ -317,7 +331,7 @@
         h('button', { class: 'btn', 'aria-pressed': String(!!it.ackedBy), disabled: !op, onclick: () => act(it, 'ack', { acked: !it.ackedBy }) }, `✓ ${it.ackedBy ? t('unack') : t('ack')}`),
         snoozed ? h('button', { class: 'btn', disabled: !op, onclick: () => act(it, 'snooze', { hours: 0 }) }, t('unsnooze'))
           : h('span', { class: 'snz', role: 'group', 'aria-label': t('snooze') }, [1, 8, 24].map((n) => h('button', { class: 'btn', disabled: !op, 'aria-label': `${t('snooze')} ${n}h`, onclick: () => act(it, 'snooze', { hours: n }) }, icon('moon'), `${n}h`))),
-        ex && S.summary && S.summary.llm.enabled ? h('button', { class: 'btn', disabled: !op || it.llmState === 'queued' || it.llmState === 'running', onclick: () => explain(it) }, `✦ ${t('explain')}`) : null,
+        ex && S.summary && S.summary.llm.enabled ? h('button', { class: 'btn', disabled: !op || ['queued', 'running'].includes(it.llmState), onclick: () => explain(it) }, `✦ ${t('explain')}`) : null,
         ex ? h('button', { class: 'btn', onclick: (e) => copy(it, e.currentTarget) }, t('copy')) : null,
         ex && it.link && /^https?:\/\//i.test(it.link) ? h('a', { class: 'btn', href: it.link, target: '_blank', rel: 'noopener noreferrer' }, `↗ ${t('openSource')}`) : null));
     return el;
@@ -330,6 +344,10 @@
     return h('div', { class: 'details', id: `d-${it.id}` },
       h('table', { class: 'fields' }, h('caption', { class: 'sr' }, `${t('trusted')} / ${t('untrusted')}`), h('tbody', null, rows)),
       it.flags.length ? h('div', { class: 'verdict' }, h('b', null, `⚠ ${t('injection')}`), h('ul', null, it.flags.map((f) => h('li', null, f)))) : null,
+      (it.samples || []).length > 1 ? h('details', { class: 'samples' }, h('summary', null, t('samples', it.samples.length)),
+        it.samples.map((x, i) => h('div', { class: `sample${x.flags.length ? ' flagged' : ''}` },
+          h('div', { class: 'muted' }, `${i === 0 ? `${t('first')} · ` : ''}${clock(x.at)}${x.flags.length ? ` · ⚠ ${t('flagged')}` : ''}`),
+          h('table', { class: 'fields' }, h('tbody', null, Object.entries(x.untrusted).map(([k, v]) => h('tr', { class: 'untrusted' }, h('th', { scope: 'row' }, k), h('td', null, v)))))))) : null,
       v && v.classification ? h('div', { class: 'verdict' }, h('div', null, `${t('verdict')}: `, h('b', null, `${v.classification} / ${v.recommended_action}`), ` · ${Math.round((v.confidence || 0) * 100)}% · ${v.model || ''}`),
         h('div', null, v.reason), v.overridden && v.overridden.length ? h('ul', null, v.overridden.map((o) => h('li', null, `${t('guard')}: ${o}`))) : null)
         : v && v.error ? h('div', { class: 'verdict' }, `${t('llmError')}: ${v.error}`) : null,
@@ -479,17 +497,55 @@
     g.list.replaceChildren(...g.items.slice(0, 8).map((i) => h('li', null, h('a', { href: `#item-${i.id}`, onclick: (e) => { e.preventDefault(); jump(i.id); } }, `${t('sev')[i.severity]} · ${i.title}`))));
     g.arm();
   }
-  function onNotify(n) {
+  /**
+   * Batched pipeline changes. Plain repeats only patch the count and time of an existing card
+   * in place; new cards and severity/state changes trigger one redraw for the whole batch.
+   */
+  function onItems(d) {
+    let redraw = false;
+    for (const it of d.full || []) {
+      const old = S.items.get(it.id);
+      S.items.set(it.id, it);
+      if (!old || old.severity !== it.severity || old.llmState !== it.llmState || !!old.resolvedAt !== !!it.resolvedAt || old.ackedBy !== it.ackedBy || old.pinnedBy !== it.pinnedBy || old.flags.length !== it.flags.length || (old.samples || []).length !== (it.samples || []).length) redraw = true;
+      else redraw = patchCard(it) || redraw;
+    }
+    for (const p of d.patch || []) {
+      const it = S.items.get(p.id);
+      if (!it) continue;
+      it.count = p.count; it.lastSeen = p.lastSeen;
+      redraw = patchCard(it) || redraw;
+    }
+    if (redraw) renderBoard();
+    refreshSummary();
+  }
+  /** Update count and time text of a rendered card; returns true if a redraw is needed. */
+  function patchCard(it) {
+    const el = document.getElementById(`item-${it.id}`);
+    if (!el) return false;
+    const c = el.querySelector('.count');
+    if (!c && it.count > 1) return true;
+    if (c) c.textContent = `×${it.count}`;
+    const tm = el.querySelector('.card-head .time');
+    if (tm) tm.textContent = ago(it.lastSeen);
+    return false;
+  }
+
+  function onNotify(n, batched) {
     const it = n.item;
     S.items.set(it.id, it);
     S.notes.unshift({ item: it, at: Date.now(), read: S.drawer });
     S.notes.length = Math.min(S.notes.length, 200);
     if (!S.drawer) S.unread++;
-    renderBell(); renderDrawer();
+    if (!batched) { renderBell(); renderDrawer(); }
     toast(it);
     if (typeof Notification === 'function' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
       try { const nn = new Notification(`NetSec ${t('sev')[it.severity]}`, { body: `${it.source}: ${it.title}`.slice(0, 180), tag: `item-${it.id}` }); nn.onclick = () => { window.focus(); jump(it.id); }; } catch { /* unsupported */ }
     }
+  }
+
+  function afterNotify(more) {
+    if (more && !S.drawer) S.unread += more;
+    renderBell(); renderDrawer(); renderBoard();
   }
 
   // ---------------------------------------------------------------- data + live stream
@@ -507,8 +563,10 @@
   function connect() {
     if (es) es.close();
     es = new EventSource('/api/events');
+    // single card (a user action) and coalesced batches from the pipeline
     es.addEventListener('item', (e) => { const it = JSON.parse(e.data); S.items.set(it.id, it); renderBoard(); refreshSummary(); });
-    es.addEventListener('notify', (e) => onNotify(JSON.parse(e.data)));
+    es.addEventListener('items', (e) => onItems(JSON.parse(e.data)));
+    es.addEventListener('notify', (e) => { const d = JSON.parse(e.data); for (const n of (d.items || [d]).slice().reverse()) onNotify(n, true); afterNotify(d.more || 0); });
     es.addEventListener('source', refreshSummary);
     es.addEventListener('llm', refreshSummary);
     es.addEventListener('refresh', async () => { await loadItems(); renderBoard(); refreshSummary(); });

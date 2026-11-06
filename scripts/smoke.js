@@ -5,6 +5,7 @@
  *   node scripts/smoke.js http://127.0.0.1:8480
  * Logs in as the demo admin and waits until cards from syslog, Wazuh, Zabbix and the
  * config file-drop are on the board and a spoofed syslog sender has been dropped.
+ * SMOKE_LOGIN_ONLY=1: only check /healthz, login and the API (production with sources off).
  */
 const base = (process.argv[2] || 'http://127.0.0.1:8480').replace(/\/+$/, '');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +20,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   if (r.status !== 200) throw new Error(`login HTTP ${r.status}`);
   const cookie = r.headers.get('set-cookie').split(';')[0];
   const get = async (p) => (await fetch(base + p, { headers: { cookie } })).json();
+  if (process.env.SMOKE_LOGIN_ONLY) { // production config with every source off: reachable + login + API
+    const sum = await get('/api/summary');
+    console.log(`ok: login works, ${sum.sources.filter((x) => x.enabled).length} source(s) enabled, open ${JSON.stringify(sum.counts)}`);
+    return;
+  }
   const want = ['fortigate', 'wazuh', 'zabbix', 'configdrop'];
   let missing = want, sum = null;
   for (let i = 0; i < 45; i++) {

@@ -22,9 +22,25 @@ class LlmQueue extends EventEmitter {
   constructor({ db, cfg, pipeline, lang = 'th', now = () => Date.now(), chat = LLM.chat }) {
     super();
     this.db = db; this.pipeline = pipeline; this.now = now; this.chat = chat; this.lang = lang;
-    this.cfg = { budgetPerHour: 4, queueMax: 20, autoMinSeverity: 'high', batch: 5, timeoutMs: 1800000, maxTokens: 1200, ...(cfg || {}) };
+    // automatic triage only for critical by default: on CPU the hourly budget is better spent on "Explain"
+    this.cfg = { budgetPerHour: 4, queueMax: 20, autoMinSeverity: 'critical', batch: 5, timeoutMs: 1800000, maxTokens: 1200, ...(cfg || {}) };
     this.enabled = !!(cfg && cfg.url && cfg.model && cfg.enabled !== false);
     this.queue = []; this.running = false; this.timer = null; this.lastError = null;
+  }
+
+  /**
+   * The queue lives in memory. After a restart, cards left "queued"/"running" would never
+   * finish (and the UI would keep Explain disabled), so put them back: the on-demand ones
+   * ("demand" in llm) go back in the queue, the rest return to "not triaged".
+   */
+  recover() {
+    const rows = this.db.prepare("SELECT id, llm FROM items WHERE llm_state IN ('queued', 'running')").all();
+    for (const r of rows) {
+      const demand = (() => { try { return !!JSON.parse(r.llm || '{}').demand; } catch { return false; } })();
+      this.db.prepare("UPDATE items SET llm_state = 'none' WHERE id = ?").run(r.id);
+      if (demand && this.enabled) this.enqueue(r.id, true);
+    }
+    return rows.length;
   }
 
   used() {
@@ -50,12 +66,15 @@ class LlmQueue extends EventEmitter {
     if (!this.enabled) throw Object.assign(new Error('LLM is not configured'), { status: 409 });
     const at = this.queue.findIndex((q) => q.id === id);
     if (at >= 0) {
-      if (demand && !this.queue[at].demand) { const [q] = this.queue.splice(at, 1); q.demand = true; this.queue.splice(this.queue.filter((x) => x.demand).length, 0, q); }
+      if (demand && !this.queue[at].demand) {
+        const [q] = this.queue.splice(at, 1); q.demand = true; this.queue.splice(this.queue.filter((x) => x.demand).length, 0, q);
+        this.pipeline.setLlmState(id, 'queued', null, { demand: true });
+      }
     } else {
       const q = { id, demand };
       if (demand) this.queue.splice(this.queue.filter((x) => x.demand).length, 0, q);
       else this.queue.push(q);
-      this.pipeline.setLlmState(id, 'queued');
+      this.pipeline.setLlmState(id, 'queued', null, demand ? { demand: true } : null);
       while (this.queue.length > this.cfg.queueMax) {
         const i = this.queue.findIndex((x) => !x.demand);
         if (i < 0) break;
@@ -101,7 +120,11 @@ class LlmQueue extends EventEmitter {
     if (!items.length) return;
     for (const it of items) this.pipeline.setLlmState(it.id, 'running');
     const st = N.newMaskState();
-    const records = items.map((it) => ({ trusted: it.trusted, untrusted: it.untrusted, floor: JSON.parse(this.db.prepare('SELECT floor FROM items WHERE id = ?').get(it.id).floor) }));
+    // the prompt uses the flagged sample when there is one, so a clean repeat cannot hide the injection attempt
+    const records = items.map((it) => {
+      const flagged = (it.samples || []).find((x) => x.flags && x.flags.length);
+      return { trusted: it.trusted, untrusted: flagged ? flagged.untrusted : it.untrusted, floor: JSON.parse(this.db.prepare('SELECT floor FROM items WHERE id = ?').get(it.id).floor) };
+    });
     const p = N.buildFieldPrompt(records, { maskState: st, subject: SUBJECT[items[0].source] || 'monitoring events', lang: this.lang });
     const audit = (rec) => this.db.prepare('INSERT INTO llm_audit(ts, item_ids, endpoint, endpoint_class, overrides, model, prompt_sha256, messages, reply, ms, error) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(this.now(), JSON.stringify(items.map((i) => i.id)), rec.endpoint, rec.endpoint_class, JSON.stringify(rec.endpoint_overrides || []), rec.model, rec.prompt_sha256, JSON.stringify(rec.messages), rec.reply ?? null, rec.ms ?? null, rec.error ?? null);
@@ -110,7 +133,7 @@ class LlmQueue extends EventEmitter {
       const res = await this.chat(this.cfg.url, this.cfg.model, p.messages, {
         allowRemote: !!this.cfg.allowRemote, allowHttpLan: !!this.cfg.allowHttpLan, remoteHint: 'llm.allowRemote in the config', httpHint: 'llm.allowHttpLan in the config',
         apiKey: this.cfg.apiKey || undefined, timeoutMs: this.cfg.timeoutMs, maxTokens: Math.min(this.cfg.maxTokens, 300 + 150 * items.length), temperature: 0.2,
-        audit, cmd: 'board', tool: 'netsec-board',
+        audit, cmd: 'board', tool: 'netsec-board', cacheMs: 5 * 60000,
       });
       reply = res.text;
     } catch (e) {

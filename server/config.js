@@ -78,13 +78,30 @@ function literalSecrets(o, p = '') {
   return out;
 }
 
-function loadConfig(file, overrides = {}) {
+/**
+ * Deployment overrides from the environment (Docker/systemd), applied over the file:
+ * NETSEC_LISTEN_HOST, NETSEC_LISTEN_PORT, NETSEC_DATA_DIR, NETSEC_BACKUP_DIR, NETSEC_SYSLOG_BIND.
+ * They let the unedited example config run in a container (listen 0.0.0.0, data in /data).
+ */
+function envOverrides(env = process.env) {
+  const o = {};
+  if (env.NETSEC_LISTEN_HOST || env.NETSEC_LISTEN_PORT) o.listen = { ...(env.NETSEC_LISTEN_HOST ? { host: env.NETSEC_LISTEN_HOST } : {}), ...(env.NETSEC_LISTEN_PORT ? { port: Number(env.NETSEC_LISTEN_PORT) } : {}) };
+  if (env.NETSEC_DATA_DIR) o.dataDir = env.NETSEC_DATA_DIR;
+  if (env.NETSEC_BACKUP_DIR || env.NETSEC_SYSLOG_BIND) {
+    o.sources = {};
+    if (env.NETSEC_BACKUP_DIR) o.sources.configdrop = { dir: env.NETSEC_BACKUP_DIR };
+    if (env.NETSEC_SYSLOG_BIND) o.sources.syslog = { bind: env.NETSEC_SYSLOG_BIND };
+  }
+  return o;
+}
+
+function loadConfig(file, overrides = {}, env = process.env) {
   const raw = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-  const merged = merge(merge(DEFAULTS, raw), overrides);
+  const merged = merge(merge(merge(DEFAULTS, raw), envOverrides(env)), overrides);
   const base = file ? path.dirname(path.resolve(file)) : process.cwd();
   merged.dataDir = path.resolve(base, merged.dataDir);
   if (merged.sources.configdrop.dir) merged.sources.configdrop.dir = path.resolve(base, merged.sources.configdrop.dir);
   return { raw: merged, cfg: resolveAll(merged), file: file ? path.resolve(file) : null };
 }
 
-module.exports = { DEFAULTS, SEV, sevRank, merge, resolveSecret, resolveAll, redact, literalSecrets, loadConfig };
+module.exports = { DEFAULTS, SEV, sevRank, merge, resolveSecret, resolveAll, redact, literalSecrets, loadConfig, envOverrides };

@@ -159,6 +159,9 @@ async function check({ cfg, raw }) {
     } catch (e) { err(`fortigate: ${e.message}`); }
   }
   for (const h of ['zabbix', 'wazuh', 'generic']) if (cfg.hooks[h] && cfg.hooks[h].token) ok(`hook /hooks/${h} enabled (Bearer token)`);
+  for (const h of ['zabbix', 'wazuh']) {
+    if (cfg.hooks[h] && cfg.hooks[h].token && s[h].enabled && s[h].schedule !== 'external') warn(`${h}: both the pull (sources.${h}) and the push hook (hooks.${h}) are on, so every event is counted twice. Use one per source.`);
+  }
 
   console.log('notifications');
   for (const c of (cfg.notify.channels || []).map(channelConfig)) {

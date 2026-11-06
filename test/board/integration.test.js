@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const M = require('../../mocks/servers.js');
 const db_ = require('../../server/db.js');
-const { startBoard, login, api, sse, waitFor, tmp, sleep } = require('./helpers.js');
+const { startBoard, login, api, sse, waitFor, tmp, sleep, sseItemIds } = require('./helpers.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const LOGS = fs.readFileSync(path.join(ROOT, 'samples/fgt-logs.log'), 'utf8').split('\n').filter(Boolean);
@@ -33,7 +33,7 @@ test('pull sources on a schedule tick: Wazuh + Zabbix items via API and SSE, cur
     assert.equal(db_.sourceState(app.db, 'wazuh').filtered, 1);
     assert.equal(items.filter((i) => i.source === 'zabbix').length, 4);
     assert.ok(zbx.state.calls.filter((c) => c.method === 'event.get').every((c) => c.auth === 'Bearer zbx-token-xyz'), 'Bearer header, no auth field');
-    await waitFor(() => stream.events.filter((e) => e.event === 'item').length >= 7);
+    await waitFor(() => sseItemIds(stream.events).size >= 7);
     await waitFor(() => stream.events.some((e) => e.event === 'notify'));
     // second tick: nothing new -> no duplicates; then one new alert each
     await app.scheduler.run('wazuh'); await app.scheduler.run('zabbix');

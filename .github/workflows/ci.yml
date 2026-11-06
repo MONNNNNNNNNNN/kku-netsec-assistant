@@ -48,3 +48,18 @@ jobs:
       - if: failure()
         run: docker compose --profile demo logs
       - run: docker compose --profile demo down -v
+
+  docker-prod:
+    name: docker compose prod with the unedited example config
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp netsec.example.json netsec.json && mkdir -p backups && printf 'ci-admin-password-1\n' > admin.pw && chmod 644 admin.pw
+      - run: docker compose --profile prod build
+      - run: docker compose --profile prod run --rm -v "$PWD/admin.pw:/pw:ro" board node cli/board.js init --password-file /pw
+      - run: docker compose --profile prod up -d
+      - name: reachable from the host, login works
+        run: SMOKE_LOGIN_ONLY=1 DEMO_ADMIN_PASSWORD=ci-admin-password-1 node scripts/smoke.js http://127.0.0.1:8480
+      - if: failure()
+        run: docker compose --profile prod logs
+      - run: docker compose --profile prod down -v
