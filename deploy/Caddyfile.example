@@ -1,0 +1,21 @@
+# TLS in front of the board (Caddy). Then set in netsec.json: "cookieSecure": true, "trustProxy": true,
+# "publicUrl": "https://netsec-board.example.kku.ac.th"
+netsec-board.example.kku.ac.th {
+	# campus certificate, or "tls internal" for a private CA
+	tls /etc/caddy/certs/board.crt /etc/caddy/certs/board.key
+
+	# push hooks: only the Zabbix and Wazuh servers may call them
+	@hooks path /hooks/*
+	handle @hooks {
+		@other not remote_ip 10.0.0.20 10.0.0.21
+		respond @other 403
+		reverse_proxy 127.0.0.1:8480
+	}
+
+	handle {
+		encode gzip
+		reverse_proxy 127.0.0.1:8480 {
+			flush_interval -1 # Server-Sent Events: do not buffer
+		}
+	}
+}

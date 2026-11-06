@@ -5,7 +5,7 @@
  * Severity rule: severity = max(deterministic severity, guarded LLM severity). Never lower.
  */
 const { EventEmitter } = require('node:events');
-const { tx, bumpSource } = require('./db.js');
+const { tx, bumpSource, updateSource } = require('./db.js');
 const { SEV, sevRank } = require('./config.js');
 const { maxSev } = require('./trust.js');
 
@@ -73,7 +73,7 @@ class Pipeline extends EventEmitter {
         const c = this.upsert(evt);
         if (c) changes.push(c);
       }
-      for (const [s, n] of Object.entries(counts)) bumpSource(this.db, s, 'received', n);
+      for (const [s, n] of Object.entries(counts)) { bumpSource(this.db, s, 'received', n); updateSource(this.db, s, { last_ok: this.now() }); }
     });
     for (const c of changes) { c.item = toItem(this.byId.get(c.id)); this.emit('change', c); }
     return changes;

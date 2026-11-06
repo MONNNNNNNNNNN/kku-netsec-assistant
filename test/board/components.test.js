@@ -126,12 +126,14 @@ test('notify: cloud channels get masked text (no raw IP, hostname or account nam
   assert.equal(sent.length, 4);
   for (const s of sent.filter((x) => x.type !== 'webhook')) {
     const all = `${s.title} ${s.text}`;
-    for (const raw of ['198.51.100.77', 'somchai.k', 'portal.uni.example']) assert.ok(!all.includes(raw), `${s.ch} leaked ${raw}: ${all}`);
+    for (const raw of ['198.51.100.77', 'somchai.k', 'portal.uni.example', 'FGT-DEMO-CORE']) assert.ok(!all.includes(raw), `${s.ch} leaked ${raw}: ${all}`);
     assert.match(all, /PUB_IP_1/);
     assert.match(all, /USER_1/);
   }
   assert.match(sent.find((x) => x.type === 'webhook').text, /198\.51\.100\.77/);
   assert.match(maskForCloud('admin bob logged in from 10.1.2.3', { trusted: { user: 'bob' } }), /^admin USER_1 logged in from PRIV_IP_1$/);
+  assert.equal(maskForCloud('[HIGH] wazuh: sshd brute force (web-01)', { trusted: { 'agent.name': 'web-01' } }), '[HIGH] wazuh: sshd brute force (HOSTNAME_1)');
+  assert.equal(maskForCloud('[HIGH] zabbix: Link down (Core Switch 01, Dist Eng)', { untrusted: { hosts: 'Core Switch 01, Dist Eng' } }), '[HIGH] zabbix: Link down (HOSTNAME_1, HOSTNAME_2)');
   db.close();
 });
 

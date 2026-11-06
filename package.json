@@ -19,5 +19,8 @@
     "netsec-board": "server/main.js",
     "netsec-board-admin": "cli/board.js",
     "netsec": "cli/netsec.js"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
   }
 }

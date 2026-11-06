@@ -11,7 +11,7 @@
     th: {
       login: 'เข้าสู่ระบบ', username: 'ชื่อผู้ใช้', password: 'รหัสผ่าน', signin: 'เข้าสู่ระบบ', logout: 'ออกจากระบบ',
       search: 'ค้นหา (/)', collapseAll: 'ย่อทั้งหมด', expandAll: 'ขยายทั้งหมด', theme: 'ธีม', notifications: 'การแจ้งเตือน',
-      open: 'เปิดอยู่', critHigh: 'วิกฤต + สูง ที่ยังเปิดอยู่', bySeverity: 'ตามระดับความรุนแรง', last24: 'รายการใหม่ 24 ชม.',
+      otherOpen: 'อื่น ๆ ที่เปิดอยู่', critHigh: 'วิกฤต + สูง ที่ยังเปิดอยู่', bySeverity: 'ตามระดับความรุนแรง', last24: 'รายการใหม่ 24 ชม.',
       pinned: 'ปักหมุด', live: 'สด', viewOpen: 'เปิดอยู่', viewAcked: 'รับทราบแล้ว', viewAll: 'ทั้งหมด', empty: 'ไม่มีรายการ',
       pin: 'ปักหมุด', unpin: 'เลิกปักหมุด', ack: 'รับทราบ', unack: 'ยกเลิกรับทราบ', snooze: 'เลื่อน', unsnooze: 'ยกเลิกเลื่อน',
       expand: 'ขยาย', collapse: 'ย่อ', explain: 'ให้ AI อธิบาย', copy: 'คัดลอก', copied: 'คัดลอกแล้ว', openSource: 'เปิดที่ต้นทาง',
@@ -30,7 +30,7 @@
     en: {
       login: 'Sign in', username: 'Username', password: 'Password', signin: 'Sign in', logout: 'Sign out',
       search: 'Search (/)', collapseAll: 'Collapse all', expandAll: 'Expand all', theme: 'Theme', notifications: 'Notifications',
-      open: 'open', critHigh: 'Open critical + high', bySeverity: 'By severity', last24: 'New items, 24 h',
+      otherOpen: 'other open', critHigh: 'Open critical + high', bySeverity: 'By severity', last24: 'New items, 24 h',
       pinned: 'Pinned', live: 'Live', viewOpen: 'Open', viewAcked: 'Acknowledged', viewAll: 'All', empty: 'Nothing here',
       pin: 'Pin', unpin: 'Unpin', ack: 'Acknowledge', unack: 'Un-acknowledge', snooze: 'Snooze', unsnooze: 'Unsnooze',
       expand: 'Expand', collapse: 'Collapse', explain: 'Explain (AI)', copy: 'Copy', copied: 'Copied', openSource: 'Open in source',
@@ -87,6 +87,13 @@
     for (const c of kids) el.append(c);
     return el;
   }
+  // small stroke icons (no emoji: many servers and kiosks have no emoji font)
+  const ICON = {
+    bell: 'M18 16v-5a6 6 0 1 0-12 0v5l-2 2h16zM10 20a2 2 0 0 0 4 0',
+    pin: 'M9 3h6l-1 6 4 4H6l4-4zM12 13v8',
+    moon: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
+  };
+  const icon = (name) => s('svg', { viewBox: '0 0 24 24', width: 15, height: 15, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: 'ic' }, s('path', { d: ICON[name] }));
   const app = document.getElementById('app');
   const toasts = document.getElementById('toasts');
 
@@ -166,7 +173,7 @@
   function renderShell() {
     applyTheme();
     const bellDot = h('span', { class: 'dot', hidden: true });
-    const bell = h('button', { class: 'btn bell', 'aria-label': t('notifications'), onclick: () => toggleDrawer() }, '🔔', bellDot);
+    const bell = h('button', { class: 'btn bell', 'aria-label': t('notifications'), onclick: () => toggleDrawer() }, icon('bell'), bellDot);
     const search = h('input', { type: 'search', placeholder: t('search'), 'aria-label': t('search'), value: S.q, oninput: (e) => { S.q = e.target.value; renderBoard(); } });
     const top = h('header', { class: 'top' },
       h('div', { class: 'brand' }, h('img', { src: '/icon.svg', alt: '' }), h('span', null, 'NetSec Board')),
@@ -189,7 +196,7 @@
     els.bellDot = bellDot; els.search = search;
     app.replaceChildren(top, h('main', null,
       els.hero,
-      h('h2', { class: 'sec' }, '📌 ', t('pinned'), ' ', els.pinCount), els.pinned,
+      h('h2', { class: 'sec' }, icon('pin'), t('pinned'), ' ', els.pinCount), els.pinned,
       h('h2', { class: 'sec' }, t('live'), ' ', els.liveCount, tabs), els.live), els.drawer);
     renderChips(); renderHero(); renderBoard(); renderDrawer(); renderBell();
   }
@@ -209,7 +216,7 @@
     const c = sm.counts;
     const tiles = [];
     tiles.push(h('div', { class: 'tile hero w2 h2' }, h('h3', null, t('critHigh')), h('div', { class: 'big' }, String(c.critical + c.high)),
-      h('div', { class: 'row' }, h('span', null, h('b', null, String(c.critical)), t('sev').critical), h('span', null, h('b', null, String(c.high)), t('sev').high), h('span', null, h('b', null, String(c.medium + c.low + c.info)), t('open'))), h('div', { class: 'blob', 'aria-hidden': 'true' })));
+      h('div', { class: 'row' }, h('span', null, h('b', null, String(c.critical)), t('sev').critical), h('span', null, h('b', null, String(c.high)), t('sev').high), h('span', null, h('b', null, String(c.medium + c.low + c.info)), t('otherOpen'))), h('div', { class: 'blob', 'aria-hidden': 'true' })));
     // donut
     const total = SEVS.reduce((n, k) => n + c[k], 0);
     const svg = s('svg', { viewBox: '0 0 42 42', role: 'img', 'aria-label': SEVS.map((k) => `${k} ${c[k]}`).join(', ') });
@@ -299,17 +306,17 @@
       h('div', { class: 'badges' },
         it.flags.length ? h('span', { class: 'badge inj', title: it.flags.join('\n') }, `⚠ ${t('injection')}`) : null,
         llmBadge(it),
-        it.pinnedBy ? h('span', { class: 'badge pin' }, `📌 ${t('pinnedBy')} ${it.pinnedBy}`) : null,
+        it.pinnedBy ? h('span', { class: 'badge pin' }, icon('pin'), ` ${t('pinnedBy')} ${it.pinnedBy}`) : null,
         it.ackedBy ? h('span', { class: 'badge' }, `✓ ${t('ackedBy')} ${it.ackedBy}`) : null,
-        snoozed ? h('span', { class: 'badge' }, `⏾ ${t('snoozedUntil')} ${clock(it.snoozedUntil)}`) : null,
+        snoozed ? h('span', { class: 'badge' }, icon('moon'), ` ${t('snoozedUntil')} ${clock(it.snoozedUntil)}`) : null,
         it.resolvedAt ? h('span', { class: 'badge' }, `✔ ${t('resolved')}`) : null),
       ex ? details(it) : null,
       h('div', { class: 'actions' },
         h('button', { class: 'btn', 'aria-expanded': String(ex), 'aria-controls': `d-${it.id}`, onclick: () => toggle(it.id) }, ex ? `▴ ${t('collapse')}` : `▾ ${t('expand')}`),
-        h('button', { class: 'btn', 'aria-pressed': String(!!it.pinnedBy), disabled: !op, onclick: () => act(it, 'pin', { pinned: !it.pinnedBy }) }, `📌 ${it.pinnedBy ? t('unpin') : t('pin')}`),
+        h('button', { class: 'btn', 'aria-pressed': String(!!it.pinnedBy), disabled: !op, onclick: () => act(it, 'pin', { pinned: !it.pinnedBy }) }, icon('pin'), it.pinnedBy ? t('unpin') : t('pin')),
         h('button', { class: 'btn', 'aria-pressed': String(!!it.ackedBy), disabled: !op, onclick: () => act(it, 'ack', { acked: !it.ackedBy }) }, `✓ ${it.ackedBy ? t('unack') : t('ack')}`),
         snoozed ? h('button', { class: 'btn', disabled: !op, onclick: () => act(it, 'snooze', { hours: 0 }) }, t('unsnooze'))
-          : h('span', { class: 'snz', role: 'group', 'aria-label': t('snooze') }, [1, 8, 24].map((n) => h('button', { class: 'btn', disabled: !op, 'aria-label': `${t('snooze')} ${n}h`, onclick: () => act(it, 'snooze', { hours: n }) }, `⏾${n}h`))),
+          : h('span', { class: 'snz', role: 'group', 'aria-label': t('snooze') }, [1, 8, 24].map((n) => h('button', { class: 'btn', disabled: !op, 'aria-label': `${t('snooze')} ${n}h`, onclick: () => act(it, 'snooze', { hours: n }) }, icon('moon'), `${n}h`))),
         ex && S.summary && S.summary.llm.enabled ? h('button', { class: 'btn', disabled: !op || it.llmState === 'queued' || it.llmState === 'running', onclick: () => explain(it) }, `✦ ${t('explain')}`) : null,
         ex ? h('button', { class: 'btn', onclick: (e) => copy(it, e.currentTarget) }, t('copy')) : null,
         ex && it.link && /^https?:\/\//i.test(it.link) ? h('a', { class: 'btn', href: it.link, target: '_blank', rel: 'noopener noreferrer' }, `↗ ${t('openSource')}`) : null));

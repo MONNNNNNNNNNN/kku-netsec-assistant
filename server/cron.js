@@ -3,7 +3,8 @@
  * Cron schedules: standard 5 fields (minute hour day-of-month month day-of-week) with
  * "*", step "*\/n", ranges "a-b", "a-b/n" and lists; day-of-week 0-7 (0 and 7 = Sunday). When both day fields
  * are restricted, either may match (Vixie cron). Times are evaluated at a fixed UTC
- * offset (Asia/Bangkok = +420 min, no DST). Also "@every 30s|5m|1h" for intervals.
+ * offset (Asia/Bangkok = +420 min, no DST). Also "@every 30s|5m|1h" for intervals, and
+ * "external" when system cron runs the pull instead (the built-in scheduler then skips it).
  */
 const FIELDS = [
   ['minute', 0, 59], ['hour', 0, 23], ['dom', 1, 31], ['month', 1, 12], ['dow', 0, 7],
@@ -26,6 +27,7 @@ function parseField(src, min, max, name) {
 
 function parse(expr) {
   const e = String(expr || '').trim();
+  if (e === 'external') return { external: true, expr: e }; // run by system cron: `cli/board.js pull <source>`
   const every = e.match(/^@every\s+(\d+)(s|m|h)$/);
   if (every) {
     const ms = Number(every[1]) * { s: 1000, m: 60000, h: 3600000 }[every[2]];
@@ -45,6 +47,7 @@ function parse(expr) {
 /** Next fire time strictly after `from` (ms epoch), evaluated at the given UTC offset. */
 function next(spec, from = Date.now(), tzOffsetMinutes = 420) {
   const s = typeof spec === 'string' ? parse(spec) : spec;
+  if (s.external) return null;
   if (s.every) return from + s.every;
   const off = tzOffsetMinutes * 60000;
   // work in "local" time by shifting into a UTC Date
@@ -66,6 +69,7 @@ function next(spec, from = Date.now(), tzOffsetMinutes = 420) {
 /** Typical gap between runs, used to bound jitter. */
 function period(spec, from = Date.now(), tz = 420) {
   const s = typeof spec === 'string' ? parse(spec) : spec;
+  if (s.external) return null;
   if (s.every) return s.every;
   const a = next(s, from, tz);
   return next(s, a, tz) - a;

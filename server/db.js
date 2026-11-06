@@ -37,13 +37,19 @@ const SCHEMA = [
 function openDb(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const file = path.join(dataDir, 'board.db');
-  if (!fs.existsSync(file)) fs.closeSync(fs.openSync(file, 'a', 0o600));
-  try { fs.chmodSync(file, 0o600); } catch { /* read-only fs: best effort */ }
-  const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;');
-  for (const s of SCHEMA) db.exec(s);
-  db.file = file;
-  return db;
+  // the -wal/-shm side files hold the same personal data: create everything owner-only
+  const umask = process.umask(0o077);
+  try {
+    if (!fs.existsSync(file)) fs.closeSync(fs.openSync(file, 'a', 0o600));
+    const db = new DatabaseSync(file);
+    db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;');
+    for (const s of SCHEMA) db.exec(s);
+    for (const f of [file, `${file}-wal`, `${file}-shm`]) {
+      try { if (fs.existsSync(f)) fs.chmodSync(f, 0o600); } catch { /* read-only fs: best effort */ }
+    }
+    db.file = file;
+    return db;
+  } finally { process.umask(umask); }
 }
 
 function tx(db, fn) {

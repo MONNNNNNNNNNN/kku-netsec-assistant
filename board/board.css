@@ -47,6 +47,8 @@ button { cursor: pointer; }
 .btn[aria-pressed="true"] { background: var(--ink); color: var(--tile); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .bell { position: relative; }
+.ic { flex: none; vertical-align: -2px; }
+h2.sec .ic { width: 14px; height: 14px; }
 .bell .dot { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--pink); color: #fff; font-size: 11px; line-height: 20px; text-align: center; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
 .chip-f { border: 1px solid var(--line); background: var(--tile); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -90,7 +92,7 @@ h2.sec .n { background: var(--tile); border-radius: 999px; padding: 0 8px; font-
 
 /* cards (masonry) */
 .masonry { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-auto-rows: 8px; column-gap: var(--gap); grid-auto-flow: dense; }
-.empty { color: var(--ink-3); padding: 24px 8px; }
+.empty { color: var(--ink-3); padding: 4px 8px; grid-column: 1 / -1; grid-row: span 5; }
 .card { background: var(--tile); border-radius: var(--r); box-shadow: var(--shadow); padding: 14px 16px 12px; margin-bottom: var(--gap); position: relative; min-width: 0; border-top: 5px solid var(--sevc); transition: box-shadow .2s ease, transform .2s ease; align-self: start; }
 .card:hover, .card:focus-within { box-shadow: var(--shadow-lift); }
 .card:focus { outline: 3px solid var(--indigo-2); outline-offset: 2px; }

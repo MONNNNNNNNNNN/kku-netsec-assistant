@@ -1,0 +1,50 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: unit + integration (Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --version
+      - run: npm test
+
+  e2e:
+    name: browser e2e (Playwright, Chromium)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: docs/screenshots/
+
+  docker:
+    name: docker compose demo smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --profile demo up -d --build
+      - name: wait for /healthz, then for live items from every source
+        run: node scripts/smoke.js http://127.0.0.1:8480
+      - if: failure()
+        run: docker compose --profile demo logs
+      - run: docker compose --profile demo down -v

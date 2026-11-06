@@ -114,3 +114,38 @@ test('performance: 10,000 syslog lines in under 60 s with no drops; API p95 unde
     assert.ok(p95 < 200, `p95 ${p95} ms`);
   } finally { await app.close(); }
 });
+
+test('deploy scripts: the Wazuh integration script posts an alert to /hooks/wazuh; the Zabbix webhook script posts to /hooks/zabbix', async (t) => {
+  const { app } = await startBoard({ hooks: { wazuh: { token: 'wz-hook-tok-1' }, zabbix: { token: 'zbx-hook-tok-1' } } });
+  try {
+    const dir = tmp();
+    const alertFile = path.join(dir, 'alert.json');
+    fs.writeFileSync(alertFile, JSON.stringify(M.wazuhAlert(1)._source));
+    const py = await new Promise((resolve) => execFile('python3', ['-I', path.join(ROOT, 'deploy/custom-netsec-board.py'), alertFile, 'wz-hook-tok-1', `${app.url}/hooks/wazuh`], (err, stdout, stderr) => resolve({ err, stderr })));
+    if (py.err && py.err.code === 'ENOENT') t.diagnostic('python3 not installed: Wazuh script not exercised');
+    else {
+      assert.equal(py.err, null, py.stderr);
+      assert.equal(app.db.prepare("SELECT COUNT(*) AS n FROM items WHERE source = 'wazuh'").get().n, 1);
+    }
+    // Zabbix webhook media type script, run with a synchronous HttpRequest stand-in (Zabbix uses Duktape)
+    const src = fs.readFileSync(path.join(ROOT, 'deploy/zabbix-media-webhook.js'), 'utf8');
+    const harness = `
+      const { execFileSync } = require('node:child_process');
+      function HttpRequest() { this.h = []; }
+      HttpRequest.prototype.addHeader = function (x) { this.h.push(x); };
+      HttpRequest.prototype.post = function (url, body) {
+        const out = execFileSync(process.execPath, ['-e', 'fetch(process.argv[1], { method: "POST", headers: JSON.parse(process.argv[2]), body: process.argv[3] }).then(async (r) => process.stdout.write(r.status + " " + await r.text()))', url, JSON.stringify(Object.fromEntries(this.h.map((x) => x.split(/: (.*)/s).slice(0, 2)))), body]).toString();
+        this.status = Number(out.split(' ')[0]); return out.slice(4);
+      };
+      HttpRequest.prototype.getStatus = function () { return this.status; };
+      const value = process.argv[1];
+      console.log((function () { ${src} })());`;
+    const params = { board_url: app.url, token: 'zbx-hook-tok-1', eventid: '900', triggerid: '901', severity: '5', status: 'PROBLEM', name: 'Core router down', host: 'core-rt-01', opdata: '' };
+    // async: the board under test runs in this process, so a sync spawn here would deadlock it
+    const out = await new Promise((resolve, reject) => execFile(process.execPath, ['-e', harness, JSON.stringify(params)], (err, stdout, stderr) => (err ? reject(new Error(stderr)) : resolve(stdout))));
+    assert.equal(out.trim(), 'OK');
+    const row = app.db.prepare("SELECT severity, title FROM items WHERE source = 'zabbix'").get();
+    assert.equal(row.severity, 'critical');
+    assert.match(row.title, /Core router down \(core-rt-01\)/);
+  } finally { await app.close(); }
+});

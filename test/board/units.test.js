@@ -28,6 +28,7 @@ test('cron: fields, steps, lists, ranges, Bangkok offset, Vixie day rule, @every
   assert.equal(cron.next('0 0 * * 7', at('2026-11-06T00:00:00+07:00'), BKK), at('2026-11-08T00:00:00+07:00')); // 7 = Sunday
   assert.equal(cron.next('0 0 29 2 *', at('2026-03-01T00:00:00+07:00'), BKK), at('2028-02-29T00:00:00+07:00'));
   assert.equal(cron.next('@every 30s', 1000), 31000);
+  assert.equal(cron.next('external', 1000), null, 'system cron runs it');
   assert.equal(cron.next('@hourly', at('2026-11-06T10:59:59+07:00'), BKK), at('2026-11-06T11:00:00+07:00'));
   assert.equal(cron.period('*/5 * * * *', at('2026-11-06T10:00:00+07:00'), BKK), 300000);
   for (const bad of ['* * * *', '60 * * * *', '*/0 * * * *', '5-1 * * * *', 'x * * * *', '@every 0s']) assert.throws(() => cron.parse(bad), bad);

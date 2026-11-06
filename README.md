@@ -1,4 +1,4 @@
-# NetSec Assistant (prototype v0.3)
+# NetSec Assistant + NetSec Board (prototype v0.4)
 
 **Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
 
@@ -8,16 +8,60 @@ An LLM layer for the KKU Office of Digital Technology network and cyber team. It
 
 **Idea in one line:** deterministic code finds the problems and cites config lines. A local LLM explains them in Thai and English and helps triage logs. Every LLM output goes through a guard so attacker text in the logs can't steer it.
 
-## Try it (2 minutes)
+## NetSec Board: live monitoring board (v0.4)
+
+![NetSec Board, light theme](docs/screenshots/board-light.png)
+
+A self-hosted board that **pulls and receives events automatically**: no manual imports. It shows them as a moodboard of cards you can pin, acknowledge, snooze, collapse or expand, and it pushes notifications. It runs read-only, on-prem, with zero npm runtime dependencies (Node ≥ 22.13, built-in SQLite).
+
+**Try it (one command, no real device):**
+```bash
+docker compose --profile demo up -d --build      # or, without Docker: npm run demo
+# open http://127.0.0.1:8480  ->  admin / demo-admin-pass   (viewer / demo-viewer-pass for read-only)
+```
+The demo lab plays a FortiGate, a Wazuh indexer, Zabbix, notification sinks, an adversarial LLM and a spoofing host.
+
+**Install for real (3 commands):**
+```bash
+cp netsec.example.json netsec.json && $EDITOR netsec.json   # enable sources; secrets as env:NAME or file:/path
+node cli/board.js init && node cli/board.js check            # admin user (password shown once) + connectivity check
+node server/main.js                                          # or docker compose --profile prod up -d, or deploy/netsec-board.service
+```
+
+| Source | How data arrives | Notes |
+|---|---|---|
+| FortiGate logs | **push**: syslog TCP/UDP 5514 (`deploy/fortigate-syslog.txt`) | Sender IP allowlist (empty = nobody); spoofed senders are dropped and counted; per-sender rate limit; CSV/CEF rejected |
+| Wazuh | **pull** (cron) from the indexer `_search`, or **push** via `deploy/custom-netsec-board.py` | Read-only indexer role (`cluster_composite_ops_ro` + read on `wazuh-alerts*`) |
+| Zabbix | **pull** (cron) `event.get` with `Authorization: Bearer`, or **push** via the webhook media type `deploy/zabbix-media-webhook.js` | `check` detects a web server that strips the Authorization header |
+| FortiGate config | **pull** (cron) from a file-drop folder (default), or opt-in REST backup (GET before 7.6, POST from 7.6) | REST backup needs more than read-only rights, so file-drop is the default. Findings become cards; fixed findings resolve themselves |
+| Anything else | **push** `POST /hooks/generic` with a bearer token | |
+
+Schedules are cron expressions in Asia/Bangkok time (`*/2 * * * *`, `@every 30s`). To use system cron instead, set `"schedule": "external"` and run `node cli/board.js pull <source>` (`deploy/crontab.example`).
+
+**Notifications:** board toasts, a bell drawer and browser notifications are always on. Optional channels: **ntfy** (self-hosted; e-mail through ntfy's forwarding), **Telegram**, **LINE** Messaging API (digest by default, hard daily cap: the Thai free plan is about 300 messages a month) and **webhook** (HMAC-signed, e.g. n8n). Rules per channel: minimum severity, sources, quiet hours, rate limit with digest overflow, re-notify only on escalation. Cloud channels only ever receive masked text (IPs, hostnames, e-mails, account names become tokens).
+
+**LLM (optional):** the board is complete without it. "Explain" on a card queues it first; automatic triage takes only high/critical items within an hourly budget (default 4 calls/hour, because a 3B model on CPU needs minutes per call). Severity comes from device fields and can only go **up** after the guarded LLM verdict, never down.
+
+**Security:** scrypt passwords, HttpOnly SameSite=Strict sessions, CSRF tokens, login backoff and lockout after 10 failures, viewer/operator/admin roles, strict CSP, no HTML built from strings in the UI (log fields are attacker-controlled), secrets only as references, database `0600` with 30-day retention and an audit of who viewed, pinned or acknowledged what (PDPA: treat `data/board.db` as an ISMS asset).
+
+**Tests:** `npm test` (57: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, performance: 10,000 syslog lines in about 1.5 s, API p95 about 26 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks copy vendor documentation and are **not yet verified against real KKU devices** (weeks 3–5).
+
+**Prior art (searched 2026-11-06):** the pieces exist separately (Wazuh-Autopilot and SOC-Automation for LLM triage of Wazuh alerts, fortigate-log-triage, fwrule-mcp, forti-elk, Zabbix + Ollama webhook guides, vendor AI in FortiAnalyzer and ManageEngine). None combines FortiGate config and logs, Wazuh, Zabbix and syslog on one board with an on-prem LLM whose output cannot lower device-field severity, Thai output and an injection evaluation. AiSOC's reported auto-closing of alerts through injection (May 2026) shows why the guard matters.
+
+<p><img src="docs/screenshots/board-dark.png" alt="NetSec Board, dark theme" width="68%"> <img src="docs/screenshots/board-phone.png" alt="NetSec Board on a phone" width="24%"></p>
+
+## Config review and log-injection lab (browser demo, v0.3)
+
+### Try it (2 minutes)
 
 - **In the browser:** open the [live demo](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/), or `index.html` from a clone (works offline). It runs entirely in the tab. Nothing is uploaded.
   1. **Config review:** the sample loads automatically. Click the severity tiles to filter. Open a finding to see the evidence lines and suggested CLI. Switch between ไทย and English.
   2. **Report:** the ISO/IEC 27001:2022 evidence report. *LLM input (masked)* shows exactly what an LLM would receive.
   3. **Log-injection lab:** select log 2 (or 11, an attack the detector misses), compare the *Naive* and *Hardened* prompts, then click *Run guard*.
   4. To test a real backup, use *Open backup file…*. It never leaves the browser. Use a sanitised copy anyway.
-- **CLI (Node 20+, no dependencies):**
+- **CLI (Node 22.13+, no dependencies):**
   ```bash
-  npm test                                   # 24 tests (unit + CLI end to end against a fake LLM)
+  npm test                                   # all tests (see the Board section)
   node cli/netsec.js analyze backup.conf --lang th > report.md
   node cli/netsec.js narrate backup.conf --lang th --llm http://<gpu-host>:8000/v1 --model <model>
   node cli/netsec.js narrate backup.conf --dry-run        # print the masked prompt only
@@ -87,7 +131,8 @@ FortiGate / network devices ──► config backups, log exports
    │
    ├─ FortiAnalyzer / Wazuh ........ collect, correlate, alert            (existing)
    ├─ Batfish / FortiManager ....... policy validation, change control    (existing / cross-check)
-   └─ NetSec Assistant ............. deterministic checks + ISO evidence,
+   └─ NetSec Assistant / Board ..... deterministic checks + ISO evidence, one board for
+                                     FortiGate + Wazuh + Zabbix + syslog, notifications,
                                      Thai/English explanation, guarded LLM triage
                                      read-only, on-prem, every LLM call audited
                      │
@@ -106,7 +151,7 @@ Config work is validated before log integration, so the project does not become 
 | 1–2 | Decision gate: is FortiManager/FortiAnalyzer policy analysis in use, data permissions, GPU access. LLM risk assessment (ISO 27001 6.1.2 + OWASP LLM Top 10) |
 | 3–5 | Parser and checks validated on real sanitised backups; Batfish as a cross-check oracle for shadowed rules |
 | 6–7 | ISO evidence report for the surveillance audit |
-| 8–10 | `triage` on real log exports; optional read-only import from Wazuh or FortiAnalyzer |
+| 8–10 | `triage` on real log exports; NetSec Board sources switched on one by one (read-only accounts approved in weeks 1–2) |
 | 11–13 | Multi-model, multi-run injection research on the GPU servers (Thai, context-stitching, DNS) |
 | 14–15 | Performance, privacy and false-positive evaluation |
 | 16 | Handover: runbook, metrics before/after, draft paper (e.g. ECTI-CIT) |
@@ -119,19 +164,25 @@ Config work is validated before log integration, so the project does not become 
 4. Read-only API accounts: iMaster NCE northbound, Zabbix, FortiAnalyzer. Which are realistic?
 5. What are "Garud" and the "Security Scoreboard" exactly, and which metric should this project move?
 6. Is FortiManager/FortiAnalyzer policy analysis already in use? Which focus do you prefer: this assistant, an ISO evidence assistant, or a `*.kku.ac.th` attack-surface monitor?
+7. For the board: how are FortiGate config backups made today (FortiManager, SCP, auto-backup)? This decides file-drop or REST. Is there a FortiAnalyzer that could forward syslog? Which LINE OA plan and which ntfy host may we use? Is a GPU available (without one, the LLM stays on demand at about 4 calls per hour)?
 
 ## Layout
 
 ```
-src/core.js     parser, checks, report, masking, injection defences (shared by browser + CLI)
-src/app.js      browser UI
-web/page.html   page template
-build.js        inlines everything into index.html (GitHub Pages), dist/standalone.html and dist/index.html (artifact body)
-cli/netsec.js   analyze | narrate | triage | inject-eval
-samples/        synthetic FortiOS config and 32 log lines (issues and injections seeded on purpose);
-                fgt-logs.labels.json is the ground truth: 5 seen + 11 held-out attacks
-test/           node:test suite (24 tests; fixtures/incomplete.conf exercises the coverage gate) (core.test.js unit, cli.test.js end to end with a fake OpenAI-compatible server)
-results/        measured LLM outputs
+src/core.js       parser, checks, report, masking, injection defences (shared by browser, CLI and board)
+src/app.js        browser UI of the config/injection demo; web/page.html + build.js -> index.html (GitHub Pages)
+cli/netsec.js     analyze | narrate | triage | inject-eval
+server/           NetSec Board: main, http (API, SSE, hooks), auth, db (node:sqlite), cron, scheduler,
+                  trust (per-source field-trust maps), pipeline, llm + llmqueue, notify, collectors/
+board/            moodboard UI (vanilla JS, no build step)
+cli/board.js      init | user | pull | check | test-notify | audit-export
+mocks/            mock FortiGate, Wazuh indexer, Zabbix, notification sinks, LLM; lab.js runs them all
+deploy/           systemd unit, crontab, FortiGate syslog commands, Zabbix webhook, Wazuh integration, Caddy
+Dockerfile, compose.yaml   demo / prod / llm profiles
+samples/          synthetic FortiOS config and 32 log lines (issues and injections seeded on purpose);
+                  fgt-logs.labels.json is the ground truth: 5 seen + 11 held-out attacks
+test/             node:test (core, CLI, board/*) and e2e/ (Playwright)
+results/          measured LLM outputs
 ```
 
 All sample data is synthetic: documentation IP ranges (RFC 5737), `uni.example`, fake hashes. This is not an official KKU system.

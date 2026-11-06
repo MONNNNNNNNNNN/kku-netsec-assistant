@@ -1,0 +1,24 @@
+# FortiGate -> NetSec Board syslog (push). Verify the option names on your FortiOS version
+# (rfc5424 format needs 6.4.6+ / 7.0+). Run from the CLI, or per VDOM if logging is per VDOM.
+
+config log syslogd setting
+    set status enable
+    set server "10.0.0.50"          # the board's management-VLAN IP (SYSLOG_BIND)
+    set mode reliable               # TCP (RFC 6587). "udp" also works but can lose messages
+    set port 5514
+    set format rfc5424              # or "default". csv and cef are rejected by the board
+    set facility local7
+    set source-ip "10.0.0.1"        # must match sources.syslog.allow in netsec.json
+end
+
+# Keep volume sane: the board is not a log store. Traffic logs stay in FortiAnalyzer/SIEM.
+config log syslogd filter
+    set severity warning
+    set forward-traffic disable
+    set local-traffic disable
+    set multicast-traffic disable
+    set sniffer-traffic disable
+    set anomaly enable
+end
+
+# Check: diagnose log test   (sends test messages; they appear on the board's syslog tile)

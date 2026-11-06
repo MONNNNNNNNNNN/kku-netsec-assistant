@@ -1,0 +1,21 @@
+{
+  "_comment": "Docker demo: every source is a mock in the lab container (172.28.0.10). Mock-only secrets.",
+  "listen": { "host": "0.0.0.0", "port": 8480 },
+  "publicUrl": "http://127.0.0.1:8480",
+  "dataDir": "/data",
+  "lang": "th",
+  "sources": {
+    "syslog": { "enabled": true, "bind": "0.0.0.0", "port": 5514, "allow": ["172.28.0.10"], "minSeverity": "low" },
+    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://172.28.0.10:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD" },
+    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://172.28.0.10:18081", "token": "env:DEMO_ZABBIX_TOKEN" },
+    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "/backups" }
+  },
+  "hooks": { "generic": { "token": "env:DEMO_HOOK_TOKEN" } },
+  "notify": {
+    "channels": [
+      { "name": "ntfy-demo", "type": "ntfy", "url": "http://172.28.0.10:18090/ntfy", "topic": "netsec", "minSeverity": "high" },
+      { "name": "line-demo", "type": "line", "apiBase": "http://172.28.0.10:18090/line", "channelToken": "env:DEMO_LINE_TOKEN", "to": "Cdemo", "minSeverity": "high", "digestEveryMinutes": 2, "maxPerDay": 8, "cloud": true }
+    ]
+  },
+  "llm": { "url": "http://172.28.0.10:11435/v1", "model": "mock-adversarial", "allowHttpLan": true, "budgetPerHour": 12, "autoMinSeverity": "critical" }
+}

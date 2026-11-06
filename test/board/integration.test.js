@@ -297,6 +297,6 @@ test('no secret appears in API responses, the database file or the server log', 
     const hay = [...bodies, ...files, ...logs].join('\n');
     for (const v of Object.values(secrets)) assert.ok(!hay.includes(v), `leaked ${v}`);
     assert.ok(sinks.requests.some((r) => r.headers.authorization === `Bearer ${secrets.NSB_S3}`), 'the secret was used, just never stored');
-    assert.equal((fs.statSync(app.db.file).mode & 0o777).toString(8), '600');
+    for (const f of [app.db.file, `${app.db.file}-wal`, `${app.db.file}-shm`]) if (fs.existsSync(f)) assert.equal((fs.statSync(f).mode & 0o777).toString(8), '600', f);
   } finally { await app.close(); for (const m of [wz, zbx, sinks]) m.server.close(); }
 });

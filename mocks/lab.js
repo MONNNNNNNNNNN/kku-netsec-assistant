@@ -3,7 +3,7 @@
 /*
  * Demo lab: starts every mock and keeps them producing events, so a fresh board is live
  * without any real device. Used by `npm run demo` and the compose "demo" profile.
- *   node mocks/lab.js [--host 127.0.0.1] [--board-syslog 127.0.0.1:5514] [--backups ./demo-backups]
+ *   node mocks/lab.js [--host 127.0.0.1] [--board-syslog 127.0.0.1:5514] [--spoof-target ip:port] [--backups ./demo-backups]
  * Ports: FortiGate 18443, Wazuh indexer 19200, Zabbix 18081, notification sinks 18090, LLM 11435.
  * Every mock is UNVERIFIED against real devices (see mocks/servers.js).
  */
@@ -16,6 +16,8 @@ const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i
 const host = opt('host', '127.0.0.1');
 const [sysHost, sysPort] = opt('board-syslog', '127.0.0.1:5514').split(':');
 const backups = path.resolve(opt('backups', './demo-backups'));
+// where the spoofing host sends: same receiver from a non-allowlisted address
+const spoof = opt('spoof-target', '');
 
 (async () => {
   const fgt = await M.mockFortigate({ port: 18443, host, token: 'demo-fgt-token' });
@@ -38,6 +40,7 @@ const backups = path.resolve(opt('backups', './demo-backups'));
   setInterval(() => wz.add(1), 15000);
   setInterval(() => zbx.add(1), 25000);
   // a host that is not on the allowlist keeps trying (the board should count and drop it)
-  setInterval(() => M.sendSyslog([lines[1]], { host: sysHost, port: Number(sysPort), proto: 'udp', localAddress: host === '127.0.0.1' ? '127.0.0.2' : undefined }).catch(() => {}), 10000);
+  const [spHost, spPort] = spoof ? spoof.split(':') : [sysHost, sysPort];
+  setInterval(() => M.sendSyslog([lines[1]], { host: spHost, port: Number(spPort), proto: 'udp', localAddress: spoof ? undefined : '127.0.0.2' }).catch(() => {}), 10000);
   tick();
 })();

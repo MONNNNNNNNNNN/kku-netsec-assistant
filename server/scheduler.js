@@ -30,7 +30,7 @@ class Scheduler extends EventEmitter {
     this.stopped = false;
     let k = 0;
     for (const j of this.jobs.values()) {
-      if (!runOnStart) { this.plan(j); continue; }
+      if (!runOnStart || j.spec.external) { this.plan(j); continue; }
       const at = this.now() + 1500 * ++k;
       updateSource(this.db, j.name, { next_run: at });
       j.timer = setTimeout(() => this.run(j.name).catch(() => {}), at - this.now());
@@ -46,6 +46,7 @@ class Scheduler extends EventEmitter {
   plan(j) {
     clearTimeout(j.timer);
     if (this.stopped) return;
+    if (j.spec.external) { updateSource(this.db, j.name, { next_run: null }); this.emit('source', j.name); return; }
     const now = this.now();
     const st = sourceState(this.db, j.name);
     let at;

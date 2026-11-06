@@ -1,0 +1,47 @@
+# /etc/systemd/system/netsec-board.service  (plain Node install, no Docker)
+#   useradd --system --home /var/lib/netsec-board --shell /usr/sbin/nologin netsec
+#   git clone ... /opt/netsec-board ; install -d -o netsec -m 700 /var/lib/netsec-board
+#   install -d -m 750 -g netsec /etc/netsec-board ; cp netsec.example.json /etc/netsec-board/netsec.json
+#   set "dataDir": "/var/lib/netsec-board" ; secrets in /etc/netsec-board/secrets.env (mode 640, NAME=value)
+#   sudo -u netsec NETSEC_CONFIG=/etc/netsec-board/netsec.json node /opt/netsec-board/cli/board.js init
+#   systemctl enable --now netsec-board
+[Unit]
+Description=NetSec Board (monitoring board, read-only collectors)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netsec
+Group=netsec
+WorkingDirectory=/opt/netsec-board
+Environment=NETSEC_CONFIG=/etc/netsec-board/netsec.json NODE_ENV=production
+EnvironmentFile=-/etc/netsec-board/secrets.env
+ExecStart=/usr/bin/node server/main.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/netsec-board
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+# V8's JIT needs writable+executable memory, so MemoryDenyWriteExecute stays off
+
+[Install]
+WantedBy=multi-user.target

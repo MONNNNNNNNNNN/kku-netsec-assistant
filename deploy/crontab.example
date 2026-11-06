@@ -1,0 +1,10 @@
+# System cron instead of the built-in scheduler (both work; do not use both for one source).
+# 1. In netsec.json set the source's "schedule": "external" (the board then shows it but never pulls it itself).
+# 2. Install as /etc/cron.d/netsec-board (runs as the netsec user):
+SHELL=/bin/sh
+NETSEC_CONFIG=/etc/netsec-board/netsec.json
+*/2 * * * *  netsec  . /etc/netsec-board/secrets.env; cd /opt/netsec-board && /usr/bin/node cli/board.js pull wazuh  >> /var/lib/netsec-board/pull.log 2>&1
+*/2 * * * *  netsec  . /etc/netsec-board/secrets.env; cd /opt/netsec-board && /usr/bin/node cli/board.js pull zabbix >> /var/lib/netsec-board/pull.log 2>&1
+*/5 * * * *  netsec  cd /opt/netsec-board && /usr/bin/node cli/board.js pull configdrop >> /var/lib/netsec-board/pull.log 2>&1
+# The running board notices rows written by these runs within 2 s and refreshes open browsers.
+# A systemd timer works the same way: ExecStart=/usr/bin/node /opt/netsec-board/cli/board.js pull wazuh

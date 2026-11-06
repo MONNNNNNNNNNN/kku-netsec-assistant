@@ -136,6 +136,7 @@ footer { color: var(--muted); font-size: 13px; padding-bottom: 32px; }
     <li><a href="#s7"><span data-l="th">7. ขั้นที่ 6: Hardened prompt</span><span data-l="en">7. Step 6: hardened prompt</span></a></li>
     <li><a href="#s8"><span data-l="th">8. ขั้นที่ 7: Output guard</span><span data-l="en">8. Step 7: output guard</span></a></li>
     <li><a href="#s9"><span data-l="th">9. ขั้นที่ 8: คนตรวจ</span><span data-l="en">9. Step 8: human review</span></a></li>
+    <li><a href="#s9b"><span data-l="th">9b. ขั้นที่ 9: NetSec Board (ดึงข้อมูลอัตโนมัติ)</span><span data-l="en">9b. Step 9: NetSec Board (automatic data)</span></a></li>
     <li><a href="#s10"><span data-l="th">10. วัดผลอย่างไร</span><span data-l="en">10. How we measure it</span></a></li>
     <li><a href="#s11"><span data-l="th">11. แผน 16 สัปดาห์</span><span data-l="en">11. The 16-week plan</span></a></li>
     <li><a href="#s12"><span data-l="th">12. สิ่งที่ต้องการจาก ODT</span><span data-l="en">12. What we need from ODT</span></a></li>
@@ -210,8 +211,8 @@ footer { color: var(--muted); font-size: 13px; padding-bottom: 32px; }
       <ul data-l="th"><li>เปิดเป็น<b>ไฟล์</b>ในเบราว์เซอร์ (ออฟไลน์ ไม่อัปโหลด) หรือผ่าน CLI</li><li>ไม่มี API ไปที่อุปกรณ์ ไม่มี credential ของอุปกรณ์</li></ul>
       <ul data-l="en"><li>Opened as a <b>file</b> in the browser (offline, no upload) or through the CLI</li><li>No API to devices, no device credentials</li></ul></div>
   </div>
-  <p data-l="th"><b>ทำไม:</b> ไม่มีทางเขียนกลับไปที่อุปกรณ์เลย จึงสอดคล้องกับ A.5.15 (access control) และ A.8.2 (privileged access) ตั้งแต่ต้น หน้า demo มี CSP <code>connect-src 'none'</code> ทำให้เบราว์เซอร์ไม่สามารถส่งข้อมูลออกไปได้</p>
-  <p data-l="en"><b>Why:</b> there is no write path to any device, which fits A.5.15 (access control) and A.8.2 (privileged access) from day one. The demo page carries a CSP with <code>connect-src 'none'</code>, so the browser cannot send data anywhere.</p>
+  <p data-l="th"><b>ทำไม:</b> ไม่มีทางเขียนกลับไปที่อุปกรณ์เลย จึงสอดคล้องกับ A.5.15 (access control) และ A.8.2 (privileged access) ตั้งแต่ต้น (บอร์ดในขั้นที่ 9 เพิ่มการดึง/รับข้อมูลแบบอ่านอย่างเดียว หลังได้รับอนุมัติแล้วเท่านั้น) หน้า demo มี CSP <code>connect-src 'none'</code> ทำให้เบราว์เซอร์ไม่สามารถส่งข้อมูลออกไปได้</p>
+  <p data-l="en"><b>Why:</b> there is no write path to any device, which fits A.5.15 (access control) and A.8.2 (privileged access) from day one. (The board in step 9 adds read-only pulls and pushes, only after approval.) The demo page carries a CSP with <code>connect-src 'none'</code>, so the browser cannot send data anywhere.</p>
 </section>
 
 <!-- 3 -->
@@ -360,6 +361,23 @@ msg="Administrator <span class="tok">USER_1</span> logged in successfully from h
   <h2><span class="step-n">8</span><span data-l="th">คนเป็นผู้ตรวจสุดท้าย</span><span data-l="en">A person reviews everything</span></h2>
   <p data-l="th">ไม่มีอะไรถูกนำไปใช้กับอุปกรณ์โดยอัตโนมัติ คำสั่ง CLI ที่แนะนำทุกคำสั่ง และร่าง triage ทุกฉบับ ต้องผ่านเจ้าหน้าที่ตรวจก่อน รายงานจากโค้ดคือข้อเท็จจริงหลัก ข้อความจาก LLM เป็นเพียง "ร่าง" ที่ต้องมีคนตรวจ</p>
   <p data-l="en">Nothing is applied to a device automatically. Every suggested CLI command and every triage draft goes through a staff member first. The code's report is the source of truth; LLM text is a draft that a person reviews.</p>
+</section>
+
+<!-- 9b -->
+<section id="s9b">
+  <h2><span class="step-n">9</span><span data-l="th">NetSec Board: ดึงข้อมูลอัตโนมัติ แจ้งเตือน และ moodboard</span><span data-l="en">NetSec Board: automatic data, notifications and a moodboard</span></h2>
+  <p data-l="th">v0.4 เพิ่มบอร์ดที่รันบนเซิร์ฟเวอร์ภายใน รับและดึงข้อมูลเอง <b>ไม่ต้อง import ไฟล์ด้วยมือ</b> แสดงเป็นการ์ดแบบ moodboard ที่ปักหมุด รับทราบ เลื่อน ย่อ/ขยาย ได้ และส่งการแจ้งเตือน ทุกแหล่งข้อมูลปิดไว้เป็นค่าเริ่มต้น จะเปิดทีละแหล่งหลังจากได้บัญชีแบบอ่านอย่างเดียวที่ผ่านการอนุมัติตาม ISMS ในสัปดาห์ 1–2</p>
+  <p data-l="en">v0.4 adds a board that runs on an internal server and receives or pulls data by itself, so <b>nothing is imported by hand</b>. Events become moodboard cards that can be pinned, acknowledged, snoozed, collapsed or expanded, and notifications are pushed. Every source is off by default and is switched on one at a time, after a read-only account is approved under the ISMS in weeks 1–2.</p>
+  <div class="two">
+    <div class="card"><span class="eyebrow" data-l="th">ข้อมูลเข้ามาอย่างไร</span><span class="eyebrow" data-l="en">How data arrives</span>
+      <ul data-l="th"><li><b>FortiGate log</b>: FortiGate ส่ง syslog มาเอง (push) รับเฉพาะ IP ที่อยู่ใน allowlist ผู้ส่งปลอมถูกทิ้งและนับ</li><li><b>Wazuh / Zabbix</b>: ดึงตาม cron ด้วยบัญชีอ่านอย่างเดียว หรือให้ระบบเหล่านั้นส่ง webhook มา</li><li><b>Config backup</b>: อ่านจากโฟลเดอร์ที่งาน backup เดิมเขียนไว้ (ไม่ต้องมีสิทธิ์บนอุปกรณ์) การ์ดของปัญหาที่แก้แล้วจะปิดเอง</li></ul>
+      <ul data-l="en"><li><b>FortiGate logs</b>: the FortiGate pushes syslog; only allowlisted sender IPs are accepted, spoofed senders are dropped and counted</li><li><b>Wazuh / Zabbix</b>: pulled on a cron schedule with read-only accounts, or pushed by their webhooks</li><li><b>Config backups</b>: read from a folder the existing backup job writes into (no device privilege); cards for fixed findings resolve themselves</li></ul></div>
+    <div class="card"><span class="eyebrow" data-l="th">ความปลอดภัย</span><span class="eyebrow" data-l="en">Safety</span>
+      <ul data-l="th"><li>ความรุนแรงมาจากฟิลด์ที่อุปกรณ์สร้างเท่านั้น ผล LLM (ผ่าน guard) <b>เพิ่มได้ แต่ลดไม่ได้</b></li><li>LLM ไม่บังคับ: กด "ให้ AI อธิบาย" ทีละการ์ด หรือคิวอัตโนมัติที่จำกัดจำนวนครั้งต่อชั่วโมง (CPU ช้า)</li><li>LINE/Telegram ได้เฉพาะข้อความที่ mask แล้ว LINE ส่งแบบสรุปรวมและมีเพดานต่อวัน</li><li>รหัสผ่าน scrypt, CSRF, ล็อกบัญชีหลังผิด 10 ครั้ง, บันทึกว่าใครดู/ปักหมุด/รับทราบอะไร, เก็บข้อมูล 30 วัน</li></ul>
+      <ul data-l="en"><li>Severity comes only from device-generated fields; the guarded LLM verdict <b>can raise it but never lower it</b></li><li>The LLM is optional: "Explain" per card, or an automatic queue with an hourly budget (CPU is slow)</li><li>LINE/Telegram receive masked text only; LINE sends digests with a daily cap</li><li>scrypt passwords, CSRF, lockout after 10 failures, an audit of who viewed/pinned/acknowledged what, 30-day retention</li></ul></div>
+  </div>
+  <p data-l="th"><b>ลองได้ทันที:</b> <code>docker compose --profile demo up -d --build</code> แล้วเปิด <code>http://127.0.0.1:8480</code> (admin / demo-admin-pass) ชุด lab จำลอง FortiGate, Wazuh, Zabbix, LLM ที่ถูกหลอก และเครื่องที่ปลอม syslog ทุกอย่างผ่านการทดสอบอัตโนมัติ รวมถึงทดสอบในเบราว์เซอร์จริง แต่ mock ทั้งหมดยัง<b>ไม่ได้ยืนยันกับอุปกรณ์จริงของ KKU</b> (สัปดาห์ 3–5)</p>
+  <p data-l="en"><b>Try it now:</b> <code>docker compose --profile demo up -d --build</code>, then open <code>http://127.0.0.1:8480</code> (admin / demo-admin-pass). The lab plays a FortiGate, Wazuh, Zabbix, a manipulated LLM and a host that spoofs syslog. Everything has automated tests, including a real-browser test, but the mocks are <b>not yet verified against real KKU devices</b> (weeks 3–5).</p>
 </section>
 
 <!-- 10 -->

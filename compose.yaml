@@ -1,0 +1,90 @@
+# NetSec Board
+#   Demo (mocks, no real device):  docker compose --profile demo up -d --build
+#                                   open http://127.0.0.1:8480  (admin / demo-admin-pass)
+#   Production:                     cp netsec.example.json netsec.json   # edit: listen 0.0.0.0, dataDir /data
+#                                   docker compose --profile prod run --rm board node cli/board.js init
+#                                   docker compose --profile prod up -d
+#   Optional local LLM:             add --profile llm (Ollama, CPU; pull a model first)
+# The UI is published on 127.0.0.1 only; put Caddy/nginx with TLS in front (deploy/Caddyfile.example).
+# Syslog must be reachable from the FortiGate: set SYSLOG_BIND to the board's management-VLAN IP.
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+services:
+  board:
+    profiles: [prod]
+    build: .
+    image: netsec-board:0.4.0
+    <<: *hardening
+    env_file:
+      - path: .env            # secrets referenced as env:NAME in netsec.json
+        required: false
+    volumes:
+      - ./netsec.json:/config/netsec.json:ro
+      - board-data:/data
+      - ./backups:/backups:ro  # config file-drop folder (sources.configdrop.dir = /backups)
+    ports:
+      - "127.0.0.1:8480:8480"
+      - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/tcp"
+      - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/udp"
+
+  board-demo:
+    profiles: [demo]
+    build: .
+    image: netsec-board:0.4.0
+    <<: *hardening
+    environment:
+      NETSEC_CONFIG: /app/deploy/netsec.docker-demo.json
+      DEMO_WAZUH_PASSWORD: demo-wazuh-pass
+      DEMO_ZABBIX_TOKEN: demo-zabbix-token
+      DEMO_LINE_TOKEN: demo-line-token
+      DEMO_HOOK_TOKEN: demo-hook-token
+    command: ["sh", "-c", "node cli/board.js init --password-file deploy/demo-admin-password && exec node server/main.js"]
+    volumes:
+      - demo-data:/data
+      - demo-backups:/backups:ro
+    ports: ["127.0.0.1:8480:8480"]
+    networks:
+      lab: { ipv4_address: 172.28.0.20 }
+      rogue: { ipv4_address: 172.29.0.20 }   # a second LAN where a spoofing host sits
+    depends_on: [lab]
+
+  lab:
+    profiles: [demo]
+    build: .
+    image: netsec-board:0.4.0
+    <<: *hardening
+    command: ["node", "mocks/lab.js", "--host", "0.0.0.0", "--board-syslog", "172.28.0.20:5514", "--spoof-target", "172.29.0.20:5514", "--backups", "/backups"]
+    user: root  # writes the sample backup into the shared volume, then only serves mocks
+    volumes: [demo-backups:/backups]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18090/_requests').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+    networks:
+      lab: { ipv4_address: 172.28.0.10 }
+      rogue: { ipv4_address: 172.29.0.10 }  # not on the board's syslog allowlist
+
+  ollama:
+    profiles: [llm]
+    image: ollama/ollama:0.12.6
+    restart: unless-stopped
+    volumes: [ollama:/root/.ollama]
+    ports: ["127.0.0.1:11434:11434"]
+
+networks:
+  lab:
+    ipam:
+      config: [{ subnet: 172.28.0.0/24 }]
+  rogue:
+    ipam:
+      config: [{ subnet: 172.29.0.0/24 }]
+
+volumes:
+  board-data:
+  demo-data:
+  demo-backups:
+  ollama:

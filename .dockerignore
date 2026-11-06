@@ -1,0 +1,10 @@
+node_modules
+.git
+demo-data
+demo-backups
+data
+netsec.json
+.env
+test-results
+docs/screenshots
+audit

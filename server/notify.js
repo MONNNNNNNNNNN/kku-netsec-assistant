@@ -32,16 +32,20 @@ function channelConfig(c) {
 }
 function safeHost(u) { try { return new URL(u).hostname; } catch { return ''; } }
 
-/** Mask text for a cloud channel, including the item's account names. */
+// internal host names that are not FQDNs (so core.mask would not catch them)
+const HOST_FIELDS = ['devname', 'hostname', 'srcname', 'dstname', 'agent.name', 'agent.ip', 'manager.name', 'hosts', 'host', 'device'];
+
+/** Mask text for a cloud channel: IPs, FQDNs, e-mails, plus the item's account and host names. */
 function maskForCloud(text, item) {
   let t = String(text);
-  const st = N.newMaskState();
   const fields = { ...(item && item.trusted), ...(item && item.untrusted) };
-  const users = N.USER_FIELDS.map((k) => fields[k]).filter((v) => v && String(v).length >= 2 && v !== 'N/A');
-  for (const u of users.sort((a, b) => String(b).length - String(a).length)) {
-    t = t.split(String(u)).join(`USER_${users.indexOf(u) + 1}`);
-  }
-  return N.mask(t, st).text;
+  const pick = (keys) => [...new Set(keys.flatMap((k) => String(fields[k] ?? '').split(/,\s*/)).filter((v) => v.length >= 2 && v !== 'N/A'))];
+  const swap = (vals, kind) => {
+    vals.sort((a, b) => b.length - a.length).forEach((v, i) => { t = t.split(v).join(`${kind}_${i + 1}`); });
+  };
+  swap(pick(N.USER_FIELDS), 'USER');
+  swap(pick(HOST_FIELDS), 'HOSTNAME');
+  return N.mask(t, N.newMaskState()).text;
 }
 
 function localParts(ts, tz) {
