@@ -20,7 +20,7 @@ const DEFAULTS = {
   tzOffsetMinutes: 420, // Asia/Bangkok, no DST
   cookieSecure: false,
   sessionHours: 12,
-  board: { notifyMinSeverity: 'high' },
+  board: { notifyMinSeverity: 'high', newCardsPerMinute: 120 },
   sources: {
     syslog: { enabled: false, bind: '127.0.0.1', port: 5514, udp: true, tcp: true, allow: [], ratePerSec: 2000, minSeverity: 'low' },
     wazuh: { enabled: false, schedule: '*/2 * * * *', url: '', index: 'wazuh-alerts-*', username: '', password: '', caFile: '', minSeverity: 'low', pageSize: 500 },
@@ -58,9 +58,10 @@ function resolveAll(o) {
   return out;
 }
 
-/** Deep copy safe to show: secrets replaced by "set"/"" and their reference kind. */
+/** Deep copy safe to show: secrets replaced by "set"/"" and their reference kind; URL passwords removed. */
 function redact(o) {
   if (Array.isArray(o)) return o.map(redact);
+  if (typeof o === 'string') return o.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1[redacted]@');
   if (!o || typeof o !== 'object') return o;
   const out = {};
   for (const [k, v] of Object.entries(o)) out[k] = SECRET_KEYS.test(k) ? (v ? `[set${typeof v === 'string' && /^(env|file):/.test(v) ? ` via ${v.split(':')[0]}` : ''}]` : '') : redact(v);

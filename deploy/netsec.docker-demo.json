@@ -6,9 +6,9 @@
   "lang": "th",
   "sources": {
     "syslog": { "enabled": true, "bind": "0.0.0.0", "port": 5514, "allow": ["172.28.0.10"], "minSeverity": "low" },
-    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://172.28.0.10:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD" },
-    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://172.28.0.10:18081", "token": "env:DEMO_ZABBIX_TOKEN" },
-    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "/backups" }
+    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://172.28.0.10:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD", "quietFirstRun": false },
+    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://172.28.0.10:18081", "token": "env:DEMO_ZABBIX_TOKEN", "quietFirstRun": false },
+    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "/backups", "quietFirstRun": false }
   },
   "hooks": { "generic": { "token": "env:DEMO_HOOK_TOKEN" } },
   "notify": {

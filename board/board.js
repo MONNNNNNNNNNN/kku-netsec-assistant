@@ -563,6 +563,13 @@
   function connect() {
     if (es) es.close();
     es = new EventSource('/api/events');
+    // "hello" comes on every (re)connect; after a drop (network, sleep, server cut) reload the
+    // cards, or the ones created while disconnected would never appear
+    let first = true;
+    es.addEventListener('hello', async () => {
+      if (first) { first = false; return; }
+      try { await loadItems(); renderBoard(); refreshSummary(); } catch { /* shown on next call */ }
+    });
     // single card (a user action) and coalesced batches from the pipeline
     es.addEventListener('item', (e) => { const it = JSON.parse(e.data); S.items.set(it.id, it); renderBoard(); refreshSummary(); });
     es.addEventListener('items', (e) => onItems(JSON.parse(e.data)));

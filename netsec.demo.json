@@ -7,9 +7,9 @@
   "board": { "notifyMinSeverity": "high" },
   "sources": {
     "syslog": { "enabled": true, "bind": "127.0.0.1", "port": 5514, "allow": ["127.0.0.1"], "minSeverity": "low" },
-    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://127.0.0.1:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD", "minSeverity": "low" },
-    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://127.0.0.1:18081", "token": "env:DEMO_ZABBIX_TOKEN", "minSeverity": "low" },
-    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "./demo-backups" },
+    "wazuh": { "enabled": true, "schedule": "@every 20s", "url": "http://127.0.0.1:19200", "username": "board_ro", "password": "env:DEMO_WAZUH_PASSWORD", "minSeverity": "low", "quietFirstRun": false },
+    "zabbix": { "enabled": true, "schedule": "@every 30s", "url": "http://127.0.0.1:18081", "token": "env:DEMO_ZABBIX_TOKEN", "minSeverity": "low", "quietFirstRun": false },
+    "configdrop": { "enabled": true, "schedule": "@every 60s", "dir": "./demo-backups", "quietFirstRun": false },
     "fortigate": { "enabled": false, "schedule": "0 2 * * *", "url": "http://127.0.0.1:18443", "token": "env:DEMO_FGT_TOKEN" }
   },
   "hooks": { "generic": { "token": "env:DEMO_HOOK_TOKEN" } },

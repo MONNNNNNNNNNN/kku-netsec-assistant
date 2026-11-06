@@ -20,12 +20,19 @@ const { createHandler } = require('./http.js');
 const VERSION = require('../package.json').version;
 const PULLERS = { wazuh: PULL.pullWazuh, zabbix: PULL.pullZabbix, configdrop: PULL.pullConfigDrop, fortigate: PULL.pullFortigateBackup };
 
-/** One pull run: fetch, ingest, flush, resolve stale config cards, then advance the cursor. */
-function makeJob(name, { cfg, db, pipeline }) {
+/**
+ * One pull run: fetch, ingest, flush, resolve stale config cards, then advance the cursor.
+ * The first run of a source (no cursor yet) is a quiet baseline: every open problem and the
+ * initial lookback appear as cards, but channels and automatic AI stay silent
+ * (sources.<name>.quietFirstRun: false turns that off).
+ */
+function makeJob(name, { cfg, db, pipeline, log = () => {} }) {
   return async (ctx) => {
     const r = await PULLERS[name](cfg.sources[name], ctx.cursor);
-    for (const e of r.events) pipeline.ingest(e, name);
+    const quiet = !ctx.cursor && cfg.sources[name].quietFirstRun !== false;
+    for (const e of r.events) pipeline.ingest(e, name, { quiet });
     pipeline.flush();
+    if (quiet && r.events.length) log(`${name}: first run, ${r.events.length} event(s) loaded without notifications`);
     for (const c of (r.extra && r.extra.configs) || []) {
       db_.setMeta(db, `config:${c.device}`, c.summary);
       pipeline.resolveStale(name, c.device, new Set(c.events.map((e) => e.fingerprint)));
@@ -89,33 +96,50 @@ async function createApp(loaded, opts = {}) {
   app.notifier = new Notifier({ db, cfg, senders: opts.senders });
   // the CLI never talks to the LLM: the server owns the queue (and its in-flight state)
   app.llmq = new LlmQueue({ db, cfg: cli ? null : cfg.llm, pipeline: app.pipeline, lang: cfg.lang, chat: opts.chat });
-  app.scheduler = new Scheduler({ db, tzOffsetMinutes: cfg.tzOffsetMinutes, jitter: opts.jitter ?? true, backoffBaseMs: opts.backoffBaseMs });
+  app.scheduler = new Scheduler({ db, tzOffsetMinutes: cfg.tzOffsetMinutes, jitter: opts.jitter ?? true, backoffBaseMs: opts.backoffBaseMs, lockDir: cfg.dataDir });
   if (!cli) {
     const recovered = app.llmq.recover();
     if (recovered) log(`llm: ${recovered} card(s) left queued by the last run were reset`);
   }
 
-  // rows inserted by another process (the CLI) are swept up when data_version changes;
-  // ids this process created itself are skipped (it already handled them)
+  // rows another process (the CLI) inserted, re-opened or escalated are swept up when
+  // data_version changes; what this process did itself is skipped (it already handled it)
   let swept = db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM items').get().m;
+  let sweptAt = Date.now();
   const ownIds = new Set();
+  const touched = new Map(); // id -> when this process re-opened or escalated it
   app.sweepForeign = () => {
-    const rows = db.prepare('SELECT * FROM items WHERE id > ? ORDER BY id').all(swept);
+    const started = Date.now();
+    const rows = db.prepare('SELECT * FROM items WHERE id > ? OR reopened_at > ? OR escalated_at > ? ORDER BY id').all(swept, sweptAt, sweptAt);
+    let n = 0;
     for (const r of rows) {
-      swept = Math.max(swept, r.id);
-      if (ownIds.delete(r.id)) continue;
-      const c = { id: r.id, item: toItem(r), isNew: true, escalated: false, foreign: true };
+      let c;
+      if (r.id > swept) {
+        if (ownIds.delete(r.id)) continue;
+        c = { id: r.id, item: toItem(r), isNew: true, escalated: false, foreign: true };
+      } else {
+        const at = Math.max(r.reopened_at || 0, r.escalated_at || 0);
+        if ((touched.get(r.id) || 0) >= at) continue;
+        const reopened = (r.reopened_at || 0) > sweptAt;
+        c = { id: r.id, item: toItem(r), isNew: reopened, reopened, escalated: (r.escalated_at || 0) > sweptAt, foreign: true };
+      }
+      n++;
       app.queueItem(c);
       app.notifier.boardNote(c); // channels were already routed by the writer
       app.llmq.consider(c);
     }
+    for (const r of rows) swept = Math.max(swept, r.id);
+    sweptAt = started;
     for (const id of ownIds) if (id <= swept) ownIds.delete(id);
-    return rows.length;
+    for (const [id, t] of touched) if (t < started) touched.delete(id); // later sweeps only look past `started`
+    return n;
   };
 
   app.pipeline.on('change', (c) => {
     if (c.isNew && !c.reopened && c.id > swept) ownIds.add(c.id);
+    if (c.reopened || c.escalated) touched.set(c.id, Date.now());
     app.queueItem(c);
+    if (c.quiet) { app.notifier.boardNote(c); return; } // first-run baseline: board only
     if (!c.llm) { app.notifier.consider(c); app.llmq.consider(c); }
     else if (c.escalated) app.notifier.consider({ ...c, isNew: false });
   });
@@ -125,7 +149,7 @@ async function createApp(loaded, opts = {}) {
   app.scheduler.on('source', (name) => app.broadcast('source', { name, ...db_.sourceState(db, name) }));
 
   for (const name of Object.keys(PULLERS)) {
-    if (cfg.sources[name] && cfg.sources[name].enabled) app.scheduler.add(name, cfg.sources[name].schedule, makeJob(name, { cfg, db, pipeline: app.pipeline }));
+    if (cfg.sources[name] && cfg.sources[name].enabled) app.scheduler.add(name, cfg.sources[name].schedule, makeJob(name, { cfg, db, pipeline: app.pipeline, log }));
   }
 
   // items written by another process (`cli/board.js pull` from system cron) -> tell browsers to refetch

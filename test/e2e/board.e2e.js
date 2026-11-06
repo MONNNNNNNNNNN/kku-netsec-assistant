@@ -156,6 +156,14 @@ test('board in a real browser: login, live cards, expand/collapse, pin, ack, sno
     await page.screenshot({ path: path.join(SHOTS, 'board-dark.png') });
     await page.click('button[aria-label="Theme"]'); await page.click('button[aria-label="Theme"]');
 
+    // D2: the live stream drops (network, sleep, server cut); a card created meanwhile must
+    // appear after the automatic reconnect, without a reload
+    for (const res of [...app.sse.keys()]) { app.sse.delete(res); res.destroy(); }
+    const T = require('../../server/trust.js');
+    app.pipeline.ingest(T.generic({ title: 'RECONNECT-CANARY', severity: 'high', key: 'reconnect' }), 'generic');
+    app.pipeline.flush();
+    await page.waitForSelector('#app .card:has-text("RECONNECT-CANARY")', { timeout: 8000 });
+
     // viewer: read-only buttons
     const vctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const vp = await vctx.newPage();

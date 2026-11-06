@@ -9,13 +9,14 @@
 const { EventEmitter } = require('node:events');
 const cron = require('./cron.js');
 const { sourceState, updateSource } = require('./db.js');
+const { pullLock } = require('./lock.js');
 
 const MAX_DELAY = 2 ** 31 - 1;
 
 class Scheduler extends EventEmitter {
-  constructor({ db, tzOffsetMinutes = 420, jitter = true, now = () => Date.now(), backoffBaseMs = 60000 }) {
+  constructor({ db, tzOffsetMinutes = 420, jitter = true, now = () => Date.now(), backoffBaseMs = 60000, lockDir = null }) {
     super();
-    this.db = db; this.tz = tzOffsetMinutes; this.jitter = jitter; this.now = now; this.backoffBaseMs = backoffBaseMs;
+    this.db = db; this.tz = tzOffsetMinutes; this.jitter = jitter; this.now = now; this.backoffBaseMs = backoffBaseMs; this.lockDir = lockDir;
     this.jobs = new Map(); this.stopped = true;
   }
 
@@ -76,6 +77,13 @@ class Scheduler extends EventEmitter {
   }
 
   async _run(j) {
+    // one run per source across processes (server, "Pull now", cron CLI): same cursor otherwise
+    const lock = this.lockDir ? pullLock(this.lockDir, j.name) : { release() {} };
+    if (!lock) return { ok: true, skipped: true, n: 0 };
+    try { return await this._runLocked(j); } finally { lock.release(); }
+  }
+
+  async _runLocked(j) {
     const started = this.now();
     updateSource(this.db, j.name, { last_run: started, status: 'running' });
     this.emit('source', j.name);

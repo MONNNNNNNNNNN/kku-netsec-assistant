@@ -812,11 +812,22 @@
   // ------------------------------------------------------ log injection lab
 
   /** FortiOS key=value log line -> object (quoted values may contain spaces). */
+  /**
+   * key=value / key="value" pairs. The FIRST value of a key wins: FortiOS writes the device
+   * fields (devid, level, srcip, action...) before the attacker-controllable ones (agent, url),
+   * so a value that smuggles ` severity="low" srcip=...` after an unescaped quote cannot
+   * overwrite them. Repeated keys are listed in the non-enumerable `__dup` (flagged upstream).
+   */
   function parseFortiLog(line) {
     const o = {};
+    const dup = [];
     const re = /([\w-]+)=("((?:[^"\\]|\\.)*)"|\S*)/g;
     let m;
-    while ((m = re.exec(line))) o[m[1]] = m[3] !== undefined ? m[3].replace(/\\(.)/g, '$1') : m[2];
+    while ((m = re.exec(line))) {
+      if (Object.prototype.hasOwnProperty.call(o, m[1])) { if (!dup.includes(m[1])) dup.push(m[1]); continue; }
+      o[m[1]] = m[3] !== undefined ? m[3].replace(/\\(.)/g, '$1') : m[2];
+    }
+    Object.defineProperty(o, '__dup', { value: dup, enumerable: false });
     return o;
   }
 
@@ -948,6 +959,7 @@
           untrusted[k] = useMark ? datamark(m.slice(0, CAP)) + (m.length > CAP ? `${MARK}[truncated ${m.length - CAP} chars]` : '') : m;
         } else trusted[k] = maskLogValue(k, v, st);
       }
+      if (!pre && f.__dup && f.__dup.length) flags.push(`duplicate field: ${f.__dup.join(', ')}`);
       const e = { log_id: start + i, trusted, untrusted, injection_flags: flags };
       if (pre && Array.isArray(rec.floor) && rec.floor.length) e.floor = rec.floor.slice();
       return e;

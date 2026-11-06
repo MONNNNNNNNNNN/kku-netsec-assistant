@@ -17,8 +17,8 @@ test('pull sources on a schedule tick: Wazuh + Zabbix items via API and SSE, cur
   const sinks = await M.mockSinks();
   const { app } = await startBoard({
     sources: {
-      wazuh: { enabled: true, schedule: '@every 1h', url: wz.url, username: 'ro', password: 'wz-pass-xyz' },
-      zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'zbx-token-xyz' },
+      wazuh: { enabled: true, schedule: '@every 1h', url: wz.url, username: 'ro', password: 'wz-pass-xyz', quietFirstRun: false },
+      zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'zbx-token-xyz', quietFirstRun: false },
     },
     notify: { channels: [{ name: 'ntfy', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 'noc', minSeverity: 'high' }] },
     publicUrl: 'https://board.example',
@@ -275,8 +275,8 @@ test('no secret appears in API responses, the database file or the server log', 
   const logs = [];
   const { app, dataDir } = await startBoard({
     sources: {
-      wazuh: { enabled: true, schedule: '@every 1h', url: wz.url, username: 'ro', password: 'env:NSB_S1' },
-      zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'env:NSB_S2' },
+      wazuh: { enabled: true, schedule: '@every 1h', url: wz.url, username: 'ro', password: 'env:NSB_S1', quietFirstRun: false },
+      zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'env:NSB_S2', quietFirstRun: false },
     },
     hooks: { generic: { token: 'env:NSB_S4' } },
     notify: { channels: [

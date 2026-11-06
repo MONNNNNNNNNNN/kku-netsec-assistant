@@ -223,6 +223,7 @@ function createHandler(app) {
       if (!app.scheduler.jobs.has(m[1])) throw new HttpError(404, 'not a pull source (or disabled)');
       logAction(db, s.user.username, 'pull-now', null, m[1], clientIp(req));
       const r = await app.scheduler.run(m[1]);
+      if (r.skipped) throw new HttpError(409, 'a pull of this source is already running (system cron or another request)');
       send(res, 200, r);
     }],
     ['GET', /^\/api\/config$/, (req, res) => { need(req, 'admin'); send(res, 200, redact(app.rawConfig)); }],

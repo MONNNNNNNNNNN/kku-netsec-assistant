@@ -97,16 +97,25 @@ test('F4: a Zabbix recovery event resolves the card in pull mode', async () => {
 });
 
 test('F5: 20 parallel logins leave the event loop free; every UDP line is either received or counted as a kernel drop', async () => {
-  const { app } = await startBoard({ sources: { syslog: { enabled: true, port: 0, allow: ['127.0.0.1'], minSeverity: 'info', ratePerSec: 100000 } } });
+  const { app } = await startBoard({ trustProxy: true, sources: { syslog: { enabled: true, port: 0, allow: ['127.0.0.1'], minSeverity: 'info', ratePerSec: 100000 } } });
   try {
-    // with scryptSync the loop is blocked for the whole spray (availability about 0); async scrypt keeps it about 0.95
-    let ticks = 0;
-    const ticker = setInterval(() => ticks++, 2);
-    const t0 = Date.now();
-    const statuses = await Promise.all(Array.from({ length: 20 }, () => fetch(`${app.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'admin-password-123' }) }).then((r) => r.status)));
-    const elapsed = Date.now() - t0;
-    clearInterval(ticker);
-    assert.ok((ticks * 2) / elapsed > 0.4, `event loop available ${((ticks * 2) / elapsed).toFixed(2)} of ${elapsed} ms`);
+    // Main-thread availability during a login spray, relative to an idle baseline measured the
+    // same way just before (other test files load the CPU too, so an absolute threshold flakes).
+    // With scryptSync the loop is blocked for the spray (ratio about 0); async scrypt keeps it free.
+    const availability = async (work) => {
+      let ticks = 0;
+      const ticker = setInterval(() => ticks++, 2);
+      const t0 = Date.now();
+      const out = await work();
+      const elapsed = Date.now() - t0;
+      clearInterval(ticker);
+      return { ratio: (ticks * 2) / Math.max(elapsed, 1), out, elapsed };
+    };
+    const idle = await availability(() => sleep(300));
+    // distinct client addresses (trusted proxy), so 16 checks really run at once
+    const spray = await availability(() => Promise.all(Array.from({ length: 20 }, (_, i) => fetch(`${app.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.${i + 1}` }, body: JSON.stringify({ username: 'admin', password: 'admin-password-123' }) }).then((r) => r.status))));
+    const statuses = spray.out;
+    assert.ok(spray.ratio >= 0.5 * idle.ratio, `event loop available ${spray.ratio.toFixed(2)} during the spray vs ${idle.ratio.toFixed(2)} idle (${spray.elapsed} ms)`);
     assert.ok(statuses.every((x) => x === 200 || x === 503), statuses.join(','));
     const lines = Array.from({ length: 500 }, (_, i) => LOGS[i % LOGS.length].replace(/srcport=\d+/, `srcport=${10000 + i}`));
     await M.sendSyslog(lines, { port: app.syslogAddress.udp.port });
@@ -172,7 +181,7 @@ test('F10: digests survive a restart, and items pulled by system cron reach LINE
   const cfgFile = path.join(dir, 'netsec.json');
   fs.writeFileSync(cfgFile, JSON.stringify({
     dataDir: './data',
-    sources: { zabbix: { enabled: true, schedule: 'external', url: zbx.url, token: 'env:F10_ZBX' } },
+    sources: { zabbix: { enabled: true, schedule: 'external', url: zbx.url, token: 'env:F10_ZBX', quietFirstRun: false } },
     notify: { channels: [{ name: 'line', type: 'line', apiBase: `${sinks.url}/line`, channelToken: 'line-tok', to: 'C1', minSeverity: 'high' }] },
   }));
   const { loadConfig } = require('../../server/config.js');
@@ -198,7 +207,7 @@ test('F10: digests survive a restart, and items pulled by system cron reach LINE
 });
 
 test('F12: a pinned card is returned even with 650 newer items', async () => {
-  const { app } = await startBoard();
+  const { app } = await startBoard({ board: { newCardsPerMinute: 10000 } }); // 650 distinct cards on purpose
   try {
     app.pipeline.ingest(T.generic({ title: 'old pinned', severity: 'low', key: 'pinned', time: '2026-01-01T00:00:00Z' }), 'generic');
     app.pipeline.flush();
@@ -307,7 +316,7 @@ test('P3: the repository holds no real e-mail, KKU host, public IP or non-norepl
   const { execFileSync } = require('node:child_process');
   try { execFileSync('git', ['rev-parse', '--git-dir'], { cwd: ROOT, stdio: 'ignore' }); } catch { return t.skip('needs git and a git checkout'); }
   const files = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter((f) => f && !/\.(png|jpg|ico)$|package-lock\.json$/.test(f));
-  const OK_MAIL = /^(noc@uni\.example|noc@example\.org|[\w+.-]+@users\.noreply\.github\.com)$/;
+  const OK_MAIL = /^([\w+.%-]+@([\w-]+\.)*example(\.org)?|[\w+.-]+@users\.noreply\.github\.com)$/; // RFC 2606 reserved names
   // a single-digit first octet is a version number (or 8.8.8.8, the tests' "public endpoint")
   const OK_IP = /^(10|127|0|255)\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^192\.0\.2\.|^198\.51\.100\.|^203\.0\.113\.|^169\.254\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./; // private, documentation, CGNAT
   const bad = [];
@@ -332,7 +341,7 @@ test('S1: a problem that resolves and comes back re-opens unacked and notifies a
   const sinks = await M.mockSinks();
   const zbx = await M.mockZabbix({ token: 'zt-s1-token' });
   const { app } = await startBoard({
-    sources: { zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'zt-s1-token' } },
+    sources: { zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'zt-s1-token', quietFirstRun: false } },
     notify: { channels: [
       { name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'high' },
       { name: 'line', type: 'line', apiBase: `${sinks.url}/line`, channelToken: 'lt', to: 'C1', minSeverity: 'high' },
@@ -543,4 +552,176 @@ test('S10: IPv6 CIDRs work in the syslog allowlist and trustProxy; check reports
   const { stdout } = await runCli(['check', '--config', cfgFile]);
   assert.match(stdout, /trustProxy: cannot parse proxy\.example/);
   assert.match(stdout, /allowlist entries that never match: 10\.0\.0\.0\/33/);
+});
+
+// ---------------------------------------------------------------- 20-pass review (D1-D7, E1, E2)
+
+test('D1: a value that smuggles repeated keys cannot overwrite trusted FortiGate fields', async () => {
+  const N = require('../../src/core.js');
+  const line = 'date=2026-11-06 time=10:00:00 devname="FGT-DEMO-CORE" devid="FG6H0FTB00000001" logid="0419016384" type="utm" subtype="ips" level="alert" severity="critical" srcip=198.51.100.77 dstip=10.50.0.10 action="dropped" attack="HTTP.URI.SQL.Injection" agent="Mozilla" severity="low" srcip=10.0.0.1 devid="FAKE" action="pass" x="y"';
+  const f = N.parseFortiLog(line);
+  assert.deepEqual([f.severity, f.srcip, f.devid, f.action], ['critical', '198.51.100.77', 'FG6H0FTB00000001', 'dropped']);
+  assert.deepEqual(f.__dup, ['severity', 'srcip', 'devid', 'action']);
+  assert.ok(!Object.keys(f).includes('__dup'), 'not a field');
+  const e = T.fortigate(f, Date.now());
+  assert.equal(e.detSeverity, 'critical');
+  assert.ok(e.flags.some((x) => /duplicate field: severity, srcip, devid, action/.test(x)), e.flags.join('; '));
+  // the same line through the prompt builder is flagged for the LLM too
+  const p = N.buildHardenedPrompt([line], { tag: 'DATA_T' });
+  assert.match(JSON.stringify(p.entries[0].injection_flags), /duplicate field/);
+  // a smuggled lower severity on a plain event still gets the medium floor
+  const ev = T.fortigate(N.parseFortiLog('devid="FGX" logid="0100032001" type="event" subtype="system" level="information" msg="x" level="debug"'), Date.now());
+  assert.equal(ev.detSeverity, 'medium');
+});
+
+test('E1: a distributed scan from 1,000 addresses becomes a bounded number of cards plus one burst card', async () => {
+  const sinks = await M.mockSinks();
+  const { app } = await startBoard({
+    sources: { syslog: { enabled: true, port: 0, udp: false, allow: ['127.0.0.1'], minSeverity: 'low', ratePerSec: 100000 } },
+    notify: { channels: [{ name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'high' }] },
+  });
+  try {
+    const ips = LOGS[1];
+    assert.match(ips, /subtype="ips"/);
+    const lines = Array.from({ length: 1000 }, (_, i) => ips.replace(/srcip=\S+/, `srcip=198.18.${Math.floor(i / 250)}.${i % 250}`));
+    await M.sendSyslog(lines, { port: app.syslogAddress.tcp.port, proto: 'tcp' });
+    await waitFor(() => db_.sourceState(app.db, 'syslog').received >= 1000, 15000);
+    await app.notifier.idle();
+    const rows = app.db.prepare("SELECT count, title, trusted FROM items WHERE kind = 'utm/ips'").all();
+    assert.ok(rows.length <= 121, `${rows.length} cards`);
+    const burst = rows.filter((r) => JSON.parse(r.trusted).burst === 'true');
+    assert.equal(burst.length, 1, 'one burst card');
+    assert.match(burst[0].title, /burst of distinct events/);
+    assert.ok(burst[0].count >= 879, `burst count ${burst[0].count}`);
+    assert.equal(Number(JSON.parse(burst[0].trusted).distinct), burst[0].count, 'distinct sources counted');
+    assert.equal(rows.reduce((a, r) => a + r.count, 0), 1000, 'every event kept');
+    assert.ok(sinks.requests.filter((r) => r.url === '/ntfy').length <= 20);
+  } finally { await app.close(); sinks.server.close(); }
+});
+
+test('E2: "Pull now" does not run while another process holds the source lock', async () => {
+  const zbx = await M.mockZabbix({ token: 'e2-zbx-token' });
+  const { app, dataDir } = await startBoard({ sources: { zabbix: { enabled: true, schedule: 'external', url: zbx.url, token: 'e2-zbx-token' } } });
+  const holder = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)']);
+  try {
+    fs.writeFileSync(path.join(dataDir, 'pull-zabbix.lock'), String(holder.pid));
+    const s = await login(app, 'op');
+    const r = await api(app, s, 'POST', '/api/sources/zabbix/pull', {});
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /already running/);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS n FROM items WHERE source = 'zabbix'").get().n, 0);
+    assert.equal(zbx.state.calls.filter((c) => c.method === 'event.get').length, 0);
+    holder.kill();
+    await new Promise((res) => holder.on('exit', res));
+    assert.equal((await api(app, s, 'POST', '/api/sources/zabbix/pull', {})).status, 200, 'a dead holder is taken over');
+  } finally { holder.kill(); await app.close(); zbx.server.close(); }
+});
+
+test('D3: stale locks are taken over (own pid, old file); a failed CLI pull leaves no lock', async () => {
+  const { takeLock } = require('../../server/lock.js');
+  const dir = tmp();
+  const f = path.join(dir, 'pull-x.lock');
+  fs.writeFileSync(f, String(process.pid)); // a container: the dead run had our pid
+  const a = takeLock(f); assert.ok(a, 'own pid is stale'); a.release();
+  assert.ok(!fs.existsSync(f));
+  fs.writeFileSync(f, '1'); // pid 1 is alive (EPERM), but the file is 20 min old: a reused pid
+  const old = (Date.now() - 20 * 60000) / 1000;
+  fs.utimesSync(f, old, old);
+  const b = takeLock(f); assert.ok(b, 'an old lock is stale'); b.release();
+  fs.writeFileSync(f, '1');
+  assert.equal(takeLock(f), null, 'a fresh lock of a live process holds');
+  // a pull that fails (Zabbix down) must release its lock before exiting
+  const zbx = await M.mockZabbix({ token: 'd3-zbx-token' });
+  zbx.state.fail = true;
+  const cfgFile = path.join(dir, 'netsec.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: './data', sources: { zabbix: { enabled: true, schedule: 'external', url: zbx.url, token: 'd3-zbx-token' } } }));
+  try {
+    const r = await runCli(['pull', 'zabbix', '--config', cfgFile]);
+    assert.equal(r.err && r.err.code, 1, r.stderr);
+    assert.ok(!fs.existsSync(path.join(dir, 'data', 'pull-zabbix.lock')), 'no lock left behind');
+  } finally { zbx.server.close(); }
+});
+
+test('D4: a card the cron CLI re-opens gets a board note on the running server', async () => {
+  const zbx = await M.mockZabbix({ token: 'd4-zbx-token' });
+  const dir = tmp();
+  const cfgFile = path.join(dir, 'netsec.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ dataDir: './data', board: { notifyMinSeverity: 'low' }, sources: { zabbix: { enabled: true, schedule: 'external', url: zbx.url, token: 'd4-zbx-token', quietFirstRun: false } } }));
+  const app = await mkApp(loadCfg(cfgFile), { listen: false, jitter: false, runOnStart: false, log: () => {} });
+  const notes = [];
+  app.notifier.on('board', (n) => notes.push(n));
+  try {
+    const problem = zbx.state.events[0];
+    assert.equal((await runCli(['pull', 'zabbix', '--config', cfgFile])).err, null);
+    app.sweepForeign();
+    zbx.recover(problem.eventid);
+    assert.equal((await runCli(['pull', 'zabbix', '--config', cfgFile])).err, null);
+    app.sweepForeign();
+    notes.length = 0;
+    zbx.state.events.push({ ...problem, eventid: String(Number(zbx.state.events.at(-1).eventid) + 1), clock: String(Math.floor(Date.now() / 1000)), r_eventid: '0', value: '1' });
+    assert.equal((await runCli(['pull', 'zabbix', '--config', cfgFile])).err, null);
+    app.sweepForeign();
+    const id = zbxCard(app.db, problem.objectid).id;
+    assert.ok(notes.some((n) => n.item.id === id && n.reason === 'reopened'), JSON.stringify(notes.map((n) => [n.item.id, n.reason])));
+    assert.equal(app.sweepForeign(), 0, 'not twice');
+  } finally { await app.close(); zbx.server.close(); }
+});
+
+test('D5: a source\'s first pull is a quiet baseline: cards yes, pushes no; later problems push', async () => {
+  const sinks = await M.mockSinks();
+  const zbx = await M.mockZabbix({ token: 'd5-zbx-token' });
+  const { app } = await startBoard({
+    sources: { zabbix: { enabled: true, schedule: '@every 1h', url: zbx.url, token: 'd5-zbx-token' } },
+    notify: { channels: [{ name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'low' }] },
+  });
+  try {
+    await app.scheduler.run('zabbix'); await app.notifier.idle();
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS n FROM items WHERE source = 'zabbix'").get().n, 4);
+    assert.equal(sinks.requests.length, 0, 'no push for the baseline');
+    zbx.state.events.push({ eventid: String(Number(zbx.state.events.at(-1).eventid) + 1), source: '0', object: '0', value: '1', acknowledged: '0', clock: String(Math.floor(Date.now() / 1000)), name: 'New problem', severity: '4', objectid: '4242', hosts: [{ host: 'h', name: 'h' }], tags: [] });
+    await app.scheduler.run('zabbix'); await app.notifier.idle();
+    assert.deepEqual(sinks.requests.map((r) => r.body.message.replace(/ \(.*/, '')), ['[HIGH] zabbix: New problem']);
+  } finally { await app.close(); sinks.server.close(); zbx.server.close(); }
+});
+
+test('D6: the account backoff answers the same for a real and an unknown user name', async () => {
+  const { app } = await startBoard({ trustProxy: true });
+  try {
+    const go = (u, ip) => fetch(`${app.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ username: u, password: 'wrong-password' }) }).then(async (r) => [r.status, await r.text()]);
+    const answers = {};
+    for (const u of ['admin', 'nosuchuser']) {
+      for (let i = 0; i < 6; i++) await go(u, `203.0.113.${u === 'admin' ? i + 1 : i + 101}`);
+      answers[u] = await go(u, `203.0.113.${u === 'admin' ? 50 : 150}`);
+    }
+    assert.deepEqual(answers.nosuchuser, answers.admin);
+    assert.equal(answers.admin[0], 429);
+  } finally { await app.close(); }
+});
+
+test('D7: /api/config never shows a password inside a URL', async () => {
+  const { redact } = require('../../server/config.js');
+  assert.deepEqual(redact({ sources: { zabbix: { url: 'https://u:p@zbx.example/api_jsonrpc.php', token: 'env:Z' } }, x: 'not a url user@host' }),
+    { sources: { zabbix: { url: 'https://[redacted]@zbx.example/api_jsonrpc.php', token: '[set via env]' } }, x: 'not a url user@host' });
+  const { app } = await startBoard({ sources: { wazuh: { url: 'https://ro:hunter2@wazuh.example:9200' } } });
+  try {
+    const s = await login(app, 'admin');
+    const r = await api(app, s, 'GET', '/api/config');
+    assert.ok(!r.text.includes('hunter2'));
+  } finally { await app.close(); }
+});
+
+test('E3: a burst of new cards in one flush respects the channel rate limit and daily cap', async () => {
+  const sinks = await M.mockSinks();
+  const { app } = await startBoard({ notify: { channels: [
+    { name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'high', rateLimit: { max: 5, perMinutes: 10 } },
+    { name: 'tg', type: 'telegram', apiBase: `${sinks.url}/tg`, botToken: 'x', chatId: '1', minSeverity: 'high', maxPerDay: 3, rateLimit: { max: 100, perMinutes: 10 } },
+  ] } });
+  try {
+    for (let i = 0; i < 50; i++) app.pipeline.ingest(T.generic({ title: `burst ${i}`, severity: 'high', key: `b${i}` }), 'generic');
+    app.pipeline.flush();
+    await app.notifier.idle();
+    assert.equal(sinks.requests.filter((r) => r.url === '/ntfy').length, 5, 'rate limit held');
+    assert.equal(app.notifier.pending(app.notifier.channels[0]), 45, 'the rest wait for the digest');
+    assert.equal(sinks.requests.filter((r) => r.url.startsWith('/tg/')).length, 3, 'daily cap held');
+  } finally { await app.close(); sinks.server.close(); }
 });

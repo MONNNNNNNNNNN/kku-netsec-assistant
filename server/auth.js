@@ -82,6 +82,16 @@ class Throttle {
   constructor(now = () => Date.now(), maxChecks = MAX_CHECKS) {
     this.ip = new Map(); this.pair = new Map(); this.now = now; this.active = 0; this.maxChecks = maxChecks;
     this.inflight = new Map();
+    // the account backoff for user names that do not exist, so its answer does not reveal which do
+    this.ghost = new Map();
+  }
+  ghostGet(name) { return this.ghost.get(name) || { failed: 0, locked_until: 0 }; }
+  ghostFail(name, now) {
+    const g = this.ghostGet(name);
+    g.failed++;
+    g.locked_until = g.failed >= SLOW_AFTER ? now + Math.min(ACCOUNT_MAX_WAIT, 1000 * 2 ** (g.failed - SLOW_AFTER)) : 0;
+    this.ghost.delete(name); this.ghost.set(name, g);
+    if (this.ghost.size > 10000) this.ghost.delete(this.ghost.keys().next().value);
   }
   /** ms the caller must still wait, 0 if allowed */
   wait(ipRaw) {
@@ -142,7 +152,8 @@ async function login(db, throttle, username, password, ip, now = Date.now()) {
   if (pairWait > 0) return { ok: false, status: 429, error: 'locked for this address, try later', retryAfter: Math.ceil(pairWait / 1000) };
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(name);
   const known = u && db.prepare('SELECT 1 FROM login_known WHERE user_id = ? AND ip = ? AND last_ok > ?').get(u.id, String(ip), now - KNOWN_MS);
-  if (u && !known && u.locked_until > now) return { ok: false, status: 429, error: 'too many failures for this account, wait', retryAfter: Math.ceil((u.locked_until - now) / 1000) };
+  const acct = u || throttle.ghostGet(name); // same backoff and same answer whether or not the user exists
+  if (!known && acct.locked_until > now) return { ok: false, status: 429, error: 'too many failures for this account, wait', retryAfter: Math.ceil((acct.locked_until - now) / 1000) };
   if (!throttle.acquire(ip, !!known)) return { ok: false, status: 503, error: 'busy, retry', retryAfter: 1 };
   let good;
   try { good = (await verifyPasswordAsync(String(password || ''), u ? u.pass_hash : DUMMY)) && !!u; } finally { throttle.release(ip); }
@@ -153,7 +164,7 @@ async function login(db, throttle, username, password, ip, now = Date.now()) {
       const failed = u.failed + 1;
       const until = failed >= SLOW_AFTER ? now + Math.min(ACCOUNT_MAX_WAIT, 1000 * 2 ** (failed - SLOW_AFTER)) : 0;
       db.prepare('UPDATE users SET failed = ?, locked_until = ? WHERE id = ?').run(failed, until, u.id);
-    }
+    } else throttle.ghostFail(name, now);
     return { ok: false, status: 401, error: 'wrong username or password', lockedNow };
   }
   throttle.ok(ip); throttle.pairOk(name, ip);

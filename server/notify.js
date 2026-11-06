@@ -120,6 +120,9 @@ class Notifier extends EventEmitter {
     this.qIns = db.prepare('INSERT OR IGNORE INTO notify_pending(channel, item_id, queued_at) VALUES(?, ?, ?)');
     this.timers = [];
     this.pendingSends = new Set();
+    // sends started but not yet recorded: a burst starts many sends in one tick, and the rate
+    // limit and daily cap must count them, or every one of them would pass the check
+    this.inflight = new Map();
   }
 
   start() {
@@ -188,19 +191,20 @@ class Notifier extends EventEmitter {
     const queue = () => { this.qIns.run(ch.name, item.id, now); return null; };
     if (inQuiet(ch.quietHours, now, this.tz) && !exceptOk) return queue();
     if (ch.mode === 'digest') return queue();
-    if (this.sentSince(ch, now - ch.rateLimit.perMinutes * 60000, false) >= ch.rateLimit.max) return queue();
+    if (this.sentSince(ch, now - ch.rateLimit.perMinutes * 60000, false) + (this.inflight.get(ch.name) || 0) >= ch.rateLimit.max) return queue();
     return this.send(ch, { title: `NetSec ${item.severity.toUpperCase()}`, text: itemLine(item), severity: item.severity, link: this.boardLink(item), items: [item.id] }, item, false);
   }
 
   async send(ch, msg, item, digest) {
     const now = this.now();
     const { dayStart } = localParts(now, this.tz);
-    if (this.sentSince(ch, dayStart) >= ch.maxPerDay) {
+    if (this.sentSince(ch, dayStart) + (this.inflight.get(ch.name) || 0) >= ch.maxPerDay) {
       setMeta(this.db, `notify_capped:${ch.name}`, (getMeta(this.db, `notify_capped:${ch.name}`) || 0) + 1);
       this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, itemId(item), msg.severity, digest ? 1 : 0, 'daily cap');
       return false;
     }
     const m = ch.cloud ? { ...msg, title: maskForCloud(msg.title, item), text: maskForCloud(msg.text, item), items: msg.items } : msg;
+    this.inflight.set(ch.name, (this.inflight.get(ch.name) || 0) + 1); // synchronous: before the first await
     try {
       await this.senders[ch.type](ch, m);
       const msgId = crypto.randomUUID();
@@ -213,6 +217,8 @@ class Notifier extends EventEmitter {
       this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, itemId(item), msg.severity, digest ? 1 : 0, String(e.message).slice(0, 300));
       this.emit('error', { channel: ch.name, error: e.message });
       return false;
+    } finally {
+      this.inflight.set(ch.name, Math.max(0, (this.inflight.get(ch.name) || 1) - 1));
     }
   }
 

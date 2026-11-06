@@ -32,30 +32,6 @@ const cfgFile = o.config || process.env.NETSEC_CONFIG || 'netsec.json';
 const die = (m, code = 2) => { console.error(m); process.exit(code); };
 const readPw = () => (o['password-file'] ? fs.readFileSync(o['password-file'], 'utf8').trim() : null);
 
-/**
- * Exclusive lock file holding our pid. A lock whose process is gone (crash, kill -9, reboot)
- * is taken over; a live one returns null. process.exit() skips release: the next run sees the
- * dead pid and takes over.
- */
-function takeLock(file) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const fd = fs.openSync(file, 'wx', 0o600);
-      fs.writeSync(fd, String(process.pid)); fs.closeSync(fd);
-      return { release: () => { try { if (fs.readFileSync(file, 'utf8') === String(process.pid)) fs.unlinkSync(file); } catch { /* gone */ } } };
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const pid = Number(fs.readFileSync(file, 'utf8')) || 0;
-      let alive = false;
-      try { if (pid) { process.kill(pid, 0); alive = true; } } catch (k) { alive = k.code === 'EPERM'; }
-      if (alive) return null;
-      try { fs.unlinkSync(file); } catch { /* raced with another taker */ }
-    }
-  }
-  return null;
-}
-
 async function main() {
   const [cmd, sub, name] = o._;
   if (cmd === 'init') {
@@ -97,18 +73,15 @@ async function main() {
   if (cmd === 'pull') {
     const { createApp, PULLERS } = require('../server/main.js');
     if (!PULLERS[sub]) die(`usage: pull <${Object.keys(PULLERS).join('|')}>`);
-    // one run per source at a time: two runs would read the same cursor and count every event twice
-    const lock = takeLock(path.join(cfg.dataDir, `pull-${sub}.lock`));
-    if (!lock) { console.log(`pull ${sub}: already running, skipped`); return; }
-    try {
-      const app = await createApp(loaded, { listen: false, startSources: false, jitter: false, batchMs: -1, role: 'cli' });
-      if (!app.scheduler.jobs.has(sub)) { await app.close(); die(`source ${sub} is not enabled in ${cfgFile}`); }
-      const r = await app.scheduler.run(sub);
-      await app.notifier.idle();
-      await app.close();
-      if (!r.ok) die(`pull ${sub} failed: ${r.error}`, 1);
-      console.log(`pull ${sub}: ${r.n} event(s)`);
-    } finally { lock.release(); }
+    // the scheduler takes <dataDir>/pull-<source>.lock (shared with the server's runs and "Pull now"),
+    // and releases it before we exit: a failed pull must not leave it behind
+    const app = await createApp(loaded, { listen: false, startSources: false, jitter: false, batchMs: -1, role: 'cli' });
+    if (!app.scheduler.jobs.has(sub)) { await app.close(); die(`source ${sub} is not enabled in ${cfgFile}`); }
+    let r;
+    try { r = await app.scheduler.run(sub); await app.notifier.idle(); } finally { await app.close(); }
+    if (r.skipped) { console.log(`pull ${sub}: already running, skipped`); return; }
+    if (!r.ok) die(`pull ${sub} failed: ${r.error}`, 1);
+    console.log(`pull ${sub}: ${r.n} event(s)`);
     return;
   }
 

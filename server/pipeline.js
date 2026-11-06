@@ -45,7 +45,7 @@ function toItem(r) {
     count: r.count, firstSeen: r.first_seen, lastSeen: r.last_seen,
     pinnedBy: r.pinned_by, pinnedAt: r.pinned_at, ackedBy: r.acked_by, ackedAt: r.acked_at,
     snoozedUntil: r.snoozed_until && r.snoozed_until > now ? r.snoozed_until : null, snoozedBy: r.snoozed_until > now ? r.snoozed_by : null,
-    resolvedAt: r.resolved_at, reopenedAt: r.reopened_at || null, link: r.link, llm: r.llm ? JSON.parse(r.llm) : null, llmState: r.llm_state,
+    resolvedAt: r.resolved_at, reopenedAt: r.reopened_at || null, escalatedAt: r.escalated_at || null, link: r.link, llm: r.llm ? JSON.parse(r.llm) : null, llmState: r.llm_state,
   };
 }
 
@@ -57,8 +57,28 @@ class Pipeline extends EventEmitter {
     this.ins = db.prepare(`INSERT INTO items(fingerprint, source, kind, severity, det_severity, title, trusted, untrusted, flags, floor, samples, count, first_seen, last_seen, link, resolved_at)
       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`);
     this.upd = db.prepare(`UPDATE items SET count = count + 1, last_seen = ?, det_severity = ?, severity = ?, title = ?, trusted = ?, untrusted = ?, flags = ?, floor = ?, samples = ?, link = ?,
-      resolved_at = ?, acked_by = ?, acked_at = ?, snoozed_until = ?, snoozed_by = ?, reopened_at = ? WHERE id = ?`);
+      resolved_at = ?, acked_by = ?, acked_at = ?, snoozed_until = ?, snoozed_by = ?, reopened_at = ?, escalated_at = ? WHERE id = ?`);
     this.byId = db.prepare('SELECT * FROM items WHERE id = ?');
+    // new cards per source in the last minute (a distributed scan must not become 10,000 cards)
+    this.newCards = new Map();
+    this.burstSeen = new Map(); // burst fingerprint -> Set of folded fingerprints (distinct count)
+  }
+
+  /** True when `source` already opened its budget of new cards in the last minute. */
+  overBudget(source, now) {
+    const limit = (this.cfg.board && this.cfg.board.newCardsPerMinute) || 120;
+    const list = (this.newCards.get(source) || []).filter((t) => t > now - 60000);
+    this.newCards.set(source, list);
+    return list.length >= limit;
+  }
+  countNew(source, now) { (this.newCards.get(source) || this.newCards.set(source, []).get(source)).push(now); }
+
+  /** Rewrite an event into its source's burst card (keeps the event as evidence). */
+  toBurst(e) {
+    let seen = this.burstSeen.get(e.burstFingerprint);
+    if (!seen) { seen = new Set(); this.burstSeen.set(e.burstFingerprint, seen); }
+    if (seen.size < 100000) seen.add(e.fingerprint);
+    return { ...e, fingerprint: e.burstFingerprint, burstFingerprint: null, title: `${e.kind}: burst of distinct events`, trusted: { ...e.trusted, burst: 'true', distinct: String(seen.size) } };
   }
 
   minSeverity(source) {
@@ -67,13 +87,16 @@ class Pipeline extends EventEmitter {
     return SEV.includes(s.minSeverity) ? s.minSeverity : 'info';
   }
 
-  /** Queue one normalised event. Returns false if filtered out. */
-  ingest(evt, counterSource = evt.source) {
+  /**
+   * Queue one normalised event. Returns false if filtered out.
+   * opts.quiet: a source's first run (baseline): the cards appear, but no channel or AI fires.
+   */
+  ingest(evt, counterSource = evt.source, opts = {}) {
     if (!evt.resolve && sevRank(evt.detSeverity) < sevRank(this.minSeverity(counterSource))) {
       bumpSource(this.db, counterSource, 'filtered');
       return false;
     }
-    this.queue.push({ evt, counterSource });
+    this.queue.push({ evt, counterSource, quiet: !!opts.quiet });
     if (!this.timer && this.batchMs >= 0) this.timer = setTimeout(() => { this.timer = null; this.flush(); }, this.batchMs);
     return true;
   }
@@ -86,10 +109,10 @@ class Pipeline extends EventEmitter {
     const changes = [];
     const counts = {};
     tx(this.db, () => {
-      for (const { evt, counterSource } of batch) {
+      for (const { evt, counterSource, quiet } of batch) {
         counts[counterSource] = (counts[counterSource] || 0) + 1;
         const c = this.upsert(evt);
-        if (c) changes.push(c);
+        if (c) { if (quiet) c.quiet = true; changes.push(c); }
       }
       for (const [s, n] of Object.entries(counts)) { bumpSource(this.db, s, 'received', n); updateSource(this.db, s, { last_ok: this.now() }); }
     });
@@ -97,12 +120,18 @@ class Pipeline extends EventEmitter {
     return changes;
   }
 
-  upsert(e) {
+  upsert(e0) {
     const now = this.now();
-    const row = this.sel.get(e.fingerprint);
+    let e = e0;
+    let row = this.sel.get(e.fingerprint);
     const j = JSON.stringify;
+    if (!row && !e.resolve && e.burstFingerprint && this.overBudget(e.source, now)) {
+      e = this.toBurst(e);
+      row = this.sel.get(e.fingerprint);
+    }
     if (!row) {
       if (e.resolve) return null; // a "resolved" for something we never saw
+      if (!e.trusted.burst) this.countNew(e.source, now);
       const r = this.ins.run(e.fingerprint, e.source, e.kind, e.detSeverity, e.detSeverity, e.title, j(e.trusted), j(e.untrusted), j(e.flags), j(e.floor), j(addSample([], e, now)), e.ts || now, Math.max(e.ts || now, now), e.link || null, null);
       return { id: Number(r.lastInsertRowid), isNew: true, escalated: false, resolved: false };
     }
@@ -124,7 +153,7 @@ class Pipeline extends EventEmitter {
     const floor = union(JSON.parse(row.floor || '[]'), e.floor, MAX_FLAGS);
     const samples = addSample(JSON.parse(row.samples || '[]'), e, now);
     this.upd.run(now, det, sev, e.title, j(e.trusted), j(e.untrusted), j(flags), j(floor), j(samples), e.link || null, null,
-      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened ? now : row.reopened_at, row.id);
+      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened ? now : row.reopened_at, escalated ? now : row.escalated_at, row.id);
     return { id: row.id, isNew: reopened, reopened, escalated, resolved: false, repeat: true };
   }
 
@@ -147,7 +176,7 @@ class Pipeline extends EventEmitter {
     const escalated = sevRank(sev) > sevRank(row.severity);
     this.db.prepare("UPDATE items SET llm = ?, llm_state = 'done', severity = ? WHERE id = ?").run(JSON.stringify({ ...verdict, ...meta }), sev, id);
     // same rule as upsert: an escalation re-opens an acknowledged or snoozed card
-    if (escalated) this.db.prepare('UPDATE items SET acked_by = NULL, acked_at = NULL, snoozed_until = NULL, snoozed_by = NULL WHERE id = ?').run(id);
+    if (escalated) this.db.prepare('UPDATE items SET acked_by = NULL, acked_at = NULL, snoozed_until = NULL, snoozed_by = NULL, escalated_at = ? WHERE id = ?').run(this.now(), id);
     const c = { id, item: toItem(this.byId.get(id)), escalated, llm: true };
     this.emit('change', c);
     return c;

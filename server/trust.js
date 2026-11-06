@@ -45,10 +45,14 @@ function finish(e) {
   e.ts = Number.isFinite(e.ts) ? Math.min(e.ts, now + MAX_FUTURE_MS) : now;
   e.trusted = capFields(e.trusted);
   e.untrusted = capFields(e.untrusted);
-  e.flags = flagsOf(e.untrusted);
+  e.flags = [...flagsOf(e.untrusted), ...(e.extraFlags || [])];
+  delete e.extraFlags;
   if (e.flags.length) e.detSeverity = maxSev(e.detSeverity, 'medium');
   e.floor = sevRank(e.detSeverity) >= sevRank('medium') ? [`${e.source} severity ${e.detSeverity}`] : [];
   if (e.link && !/^https?:\/\//i.test(e.link)) e.link = null;
+  // a flood of distinct fingerprints (a distributed scan) folds into one burst card per burstKey
+  e.burstFingerprint = e.burstKey ? fingerprint(e.source, e.kind, ['burst', ...e.burstKey]) : null;
+  delete e.burstKey;
   return e;
 }
 
@@ -65,6 +69,8 @@ function fortigate(f, now = Date.now()) {
   const utmSev = f.type === 'utm' ? FGT_IPS[String(f.severity || f.crlevel || '').toLowerCase()] : null;
   const det = utmSev || FGT_LEVEL[f.level] || 'info';
   const what = f.attack || f.virus || f.logdesc || f.catdesc || f.action || '';
+  // a repeated key means some value smuggled extra fields (parseFortiLog kept the first)
+  const dup = (f.__dup || []).length ? `duplicate field: ${f.__dup.join(', ')}` : null;
   const ts = Number(f.eventtime) ? Math.round(Number(f.eventtime) / (Number(f.eventtime) > 1e17 ? 1e6 : Number(f.eventtime) > 1e14 ? 1e3 : 1)) : now;
   return finish({
     source: 'fortigate', kind, ts: ts > 1e12 && ts < now + 86400000 ? ts : now,
@@ -73,6 +79,8 @@ function fortigate(f, now = Date.now()) {
     // grouping keys are device-generated only: attacker-chosen fields (user names, URLs, agents)
     // must not split one attack into thousands of cards (they are kept as samples instead)
     fingerprint: fingerprint('fortigate', kind, [f.devid, f.logid, f.srcip || f.remip, f.dstip, f.attack || f.virus || f.policyid]),
+    burstKey: [f.devid, f.logid, f.attack || f.virus || f.policyid],
+    extraFlags: dup ? [dup] : [],
     link: null,
   });
 }
@@ -87,6 +95,7 @@ function syslog(p, sender, now = Date.now()) {
     trusted, untrusted: { msg: p.msg }, detSeverity: SYSLOG_SEV[p.sev] || 'info',
     // group by sender + app + a message shape (digits/hex stripped) so repeats collapse
     fingerprint: fingerprint('syslog', p.app, [sender, p.host, String(p.msg).replace(/[0-9a-f]{4,}|\d+/gi, '#').slice(0, 120)]),
+    burstKey: [sender, p.app],
     link: null,
   });
 }
@@ -119,6 +128,7 @@ function wazuh(alert, id, opts = {}, now = Date.now()) {
     trusted, untrusted, detSeverity: wazuhSev(r.level),
     // no user names in the key: a brute force with random names stays one card
     fingerprint: fingerprint('wazuh', 'alert', [r.id, alert.agent && alert.agent.id, flat['data.srcip']]),
+    burstKey: [r.id, alert.agent && alert.agent.id],
     link: opts.dashboardUrl ? `${opts.dashboardUrl.replace(/\/+$/, '')}/app/threat-hunting` : null,
   });
 }
@@ -162,6 +172,7 @@ function generic(p, now = Date.now()) {
     title: String(p.title || 'event').slice(0, 300),
     trusted: { ...(p.fields || {}), origin: p.origin || '' }, untrusted: p.untrusted || {}, detSeverity: sev,
     fingerprint: fingerprint('generic', p.kind || 'event', [p.key || p.title]),
+    burstKey: [p.kind || 'event'],
     link: typeof p.link === 'string' ? p.link : null,
     resolve: !!p.resolved,
   });
