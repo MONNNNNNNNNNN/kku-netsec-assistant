@@ -29,6 +29,9 @@ services:
       NETSEC_DATA_DIR: /data
       NETSEC_BACKUP_DIR: /backups
       NETSEC_SYSLOG_BIND: 0.0.0.0
+      # every client reaches the container from the bridge gateway (172.16.0.0/12 by default), so
+      # throttling and the audit log need the host proxy's X-Forwarded-For (deploy/Caddyfile.example)
+      NETSEC_TRUST_PROXY: ${NETSEC_TRUST_PROXY:-172.16.0.0/12}
     volumes:
       - ./netsec.json:/config/netsec.json:ro
       - board-data:/data

@@ -119,6 +119,8 @@ async function check({ cfg, raw }) {
   const lc = await cls(`http://${cfg.listen.host}`);
   if (lc !== 'loopback' && !cfg.cookieSecure) warn(`board listens on ${cfg.listen.host} (${lc}) without cookieSecure: put it behind TLS (deploy/Caddyfile.example) and set "cookieSecure": true`);
   else ok(`board listens on ${cfg.listen.host}:${cfg.listen.port} (${lc})`);
+  if (/^https:/i.test(cfg.publicUrl || '') && !/\.example\./.test(cfg.publicUrl) && !cfg.trustProxy) warn('publicUrl is https but trustProxy is off: behind a proxy every client shares its address, so 5 failed logins by anyone slow down everyone. Set "trustProxy": true (proxy on this host) or a list of proxy addresses');
+  if (cfg.trustProxy === true) ok('trustProxy: X-Forwarded-For is honoured only from 127.0.0.1/::1 (list the proxy addresses if the proxy runs elsewhere)');
   const db = db_.openDb(cfg.dataDir);
   ok(`database ${db.file} (mode ${(fs.statSync(db.file).mode & 0o777).toString(8)}, retention ${cfg.retentionDays} days)`);
   if (!db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n) err('no admin user: run "init"');
@@ -130,7 +132,7 @@ async function check({ cfg, raw }) {
     else ok(`syslog on ${s.syslog.bind}:${s.syslog.port} ${s.syslog.tcp !== false ? 'tcp' : ''}${s.syslog.udp !== false ? '+udp' : ''}, allow ${s.syslog.allow.join(', ')}`);
     const st = db_.sourceState(db, 'syslog');
     if (st.unsupported) err(`syslog: ${st.unsupported} message(s) in CSV/CEF format. On the FortiGate: config log syslogd setting / set format rfc5424 (or default)`);
-    if (s.syslog.udp !== false) warn('syslog: UDP has no delivery guarantee; prefer FortiGate "set mode reliable" (TCP)');
+    if (s.syslog.udp !== false) warn('syslog: UDP has no delivery guarantee and its source address can be forged, so the allowlist cannot stop a spoofer on the path. Use FortiGate "set mode reliable" (TCP) and set "udp": false');
   }
   if (s.wazuh.enabled) {
     try {

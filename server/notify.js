@@ -37,11 +37,15 @@ function safeHost(u) { try { return new URL(u).hostname; } catch { return ''; } 
 // internal host names that are not FQDNs (so core.mask would not catch them)
 const HOST_FIELDS = ['devname', 'hostname', 'srcname', 'dstname', 'agent.name', 'agent.ip', 'manager.name', 'hosts', 'host', 'device'];
 
-/** Mask text for a cloud channel: IPs, FQDNs, e-mails, plus the item's account and host names. */
-function maskForCloud(text, item) {
+/**
+ * Mask text for a cloud channel: IPs, FQDNs, e-mails, plus the account and host names of
+ * every item in it (a digest passes all its items: masking only one would leak the others).
+ */
+function maskForCloud(text, items) {
   let t = String(text);
-  const fields = { ...(item && item.trusted), ...(item && item.untrusted) };
-  const pick = (keys) => [...new Set(keys.flatMap((k) => String(fields[k] ?? '').split(/,\s*/)).filter((v) => v.length >= 2 && v !== 'N/A'))];
+  const list = (Array.isArray(items) ? items : [items]).filter(Boolean);
+  const values = (k) => list.flatMap((it) => [it.trusted && it.trusted[k], it.untrusted && it.untrusted[k]]);
+  const pick = (keys) => [...new Set(keys.flatMap((k) => values(k).flatMap((v) => String(v ?? '').split(/,\s*/))).filter((v) => v.length >= 2 && v !== 'N/A'))];
   const swap = (vals, kind) => {
     vals.sort((a, b) => b.length - a.length).forEach((v, i) => { t = t.split(v).join(`${kind}_${i + 1}`); });
   };
@@ -61,6 +65,8 @@ function inQuiet(q, ts, tz) {
   const a = toMin(q.start), b = toMin(q.end);
   return a <= b ? minutes >= a && minutes < b : minutes >= a || minutes < b;
 }
+
+const itemId = (item) => (item && !Array.isArray(item) && item.id != null ? item.id : null);
 
 function itemLine(item) {
   return `[${String(item.severity).toUpperCase()}] ${item.source}: ${item.title}${item.count > 1 ? ` (x${item.count})` : ''}`;
@@ -177,7 +183,7 @@ class Notifier extends EventEmitter {
     const { dayStart } = localParts(now, this.tz);
     if (this.sentSince(ch, dayStart) >= ch.maxPerDay) {
       setMeta(this.db, `notify_capped:${ch.name}`, (getMeta(this.db, `notify_capped:${ch.name}`) || 0) + 1);
-      this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, item && item.id != null ? item.id : null, msg.severity, digest ? 1 : 0, 'daily cap');
+      this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, itemId(item), msg.severity, digest ? 1 : 0, 'daily cap');
       return false;
     }
     const m = ch.cloud ? { ...msg, title: maskForCloud(msg.title, item), text: maskForCloud(msg.text, item), items: msg.items } : msg;
@@ -190,7 +196,7 @@ class Notifier extends EventEmitter {
       if (!ids.length) ins.run(now, ch.name, msgId, null, msg.severity, digest ? 1 : 0);
       return true;
     } catch (e) {
-      this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, item && item.id != null ? item.id : null, msg.severity, digest ? 1 : 0, String(e.message).slice(0, 300));
+      this.db.prepare('INSERT INTO notifications(ts, channel, item_id, severity, ok, digest, error) VALUES(?, ?, ?, ?, 0, ?, ?)').run(now, ch.name, itemId(item), msg.severity, digest ? 1 : 0, String(e.message).slice(0, 300));
       this.emit('error', { channel: ch.name, error: e.message });
       return false;
     }
@@ -220,8 +226,7 @@ class Notifier extends EventEmitter {
     if (items.length > 10) lines.push(`+${items.length - 10} more`);
     if (capped) lines.push(`(${capped} message(s) held back by the daily cap)`);
     const base = (this.cfg.publicUrl || '').replace(/\/+$/, '');
-    const merged = { trusted: Object.assign({}, ...items.map((i) => i.trusted)), untrusted: Object.assign({}, ...items.map((i) => i.untrusted)) };
-    const ok = await this.send(ch, { title: `NetSec digest: ${items.length} item(s), top ${top.toUpperCase()}`, text: lines.join('\n'), severity: top, link: base || null, items: items.map((i) => i.id), digest: true }, merged, true);
+    const ok = await this.send(ch, { title: `NetSec digest: ${items.length} item(s), top ${top.toUpperCase()}`, text: lines.join('\n'), severity: top, link: base || null, items: items.map((i) => i.id), digest: true }, items, true);
     if (ok) {
       for (const i of items) del.run(ch.name, i.id);
       setMeta(this.db, `notify_capped:${ch.name}`, 0);

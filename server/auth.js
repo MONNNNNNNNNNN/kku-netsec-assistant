@@ -10,6 +10,9 @@
  *      per account + IP:    10 failures lock that pair for 15 minutes
  *      per account:         backoff only, max 30 s, and not for an address that logged in
  *                           successfully as this user in the last 30 days
+ *    IPv6 addresses count per /64 (one host can rotate through a whole /64). At most 2 checks
+ *    run at once per address, and 4 of the 20 slots are kept for (user, address) pairs that
+ *    logged in before, so a spray from many addresses cannot lock everyone out with 503s.
  */
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
@@ -18,7 +21,18 @@ const scryptAsync = promisify(crypto.scrypt);
 const ROLES = ['viewer', 'operator', 'admin'];
 const roleRank = (r) => ROLES.indexOf(r);
 const COOKIE = 'nsb_sid';
-const LOCK_AFTER = 10, SLOW_AFTER = 5, LOCK_MS = 15 * 60000, ACCOUNT_MAX_WAIT = 30000, KNOWN_MS = 30 * 86400000, MAX_CHECKS = 20;
+const LOCK_AFTER = 10, SLOW_AFTER = 5, LOCK_MS = 15 * 60000, ACCOUNT_MAX_WAIT = 30000, KNOWN_MS = 30 * 86400000, MAX_CHECKS = 20, RESERVED_CHECKS = 4, PER_ADDRESS_CHECKS = 2;
+const net = require('node:net');
+
+/** Throttle key for an address: IPv4 as is, IPv6 by its /64. */
+function ipKey(ip) {
+  const s = String(ip || '').replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1');
+  if (!net.isIPv6(s)) return s;
+  const [head, tail = ''] = s.split('::');
+  const a = head ? head.split(':') : [], b = s.includes('::') && tail ? tail.split(':') : [];
+  const full = s.includes('::') ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
+  return `${full.slice(0, 4).map((h) => parseInt(h, 16).toString(16)).join(':')}::/64`;
+}
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
@@ -67,21 +81,23 @@ function setPassword(db, username, password) {
 class Throttle {
   constructor(now = () => Date.now(), maxChecks = MAX_CHECKS) {
     this.ip = new Map(); this.pair = new Map(); this.now = now; this.active = 0; this.maxChecks = maxChecks;
+    this.inflight = new Map();
   }
   /** ms the caller must still wait, 0 if allowed */
-  wait(ip) {
-    const r = this.ip.get(ip);
+  wait(ipRaw) {
+    const r = this.ip.get(ipKey(ipRaw));
     return r ? Math.max(0, r.until - this.now()) : 0;
   }
-  fail(ip) {
+  fail(ipRaw) {
+    const ip = ipKey(ipRaw);
     const r = this.ip.get(ip) || { n: 0, until: 0 };
     r.n++;
     r.until = this.now() + (r.n >= SLOW_AFTER ? Math.min(LOCK_MS, 1000 * 2 ** (r.n - SLOW_AFTER)) : 0);
     this.ip.set(ip, r);
     if (this.ip.size > 10000) this.ip.delete(this.ip.keys().next().value);
   }
-  ok(ip) { this.ip.delete(ip); }
-  pairKey(user, ip) { return JSON.stringify([user, ip]); }
+  ok(ip) { this.ip.delete(ipKey(ip)); }
+  pairKey(user, ip) { return JSON.stringify([user, ipKey(ip)]); }
   pairWait(user, ip) {
     const r = this.pair.get(this.pairKey(user, ip));
     return r ? Math.max(0, r.until - this.now()) : 0;
@@ -98,8 +114,20 @@ class Throttle {
     return locked;
   }
   pairOk(user, ip) { this.pair.delete(this.pairKey(user, ip)); }
-  acquire() { if (this.active >= this.maxChecks) return false; this.active++; return true; }
-  release() { this.active = Math.max(0, this.active - 1); }
+  /** A password-check slot. `known`: this (user, address) logged in before, may use the reserve. */
+  acquire(ipRaw, known = false) {
+    const k = ipKey(ipRaw);
+    const mine = this.inflight.get(k) || 0;
+    const cap = known ? this.maxChecks : this.maxChecks - Math.min(RESERVED_CHECKS, this.maxChecks - 1);
+    if (this.active >= cap || mine >= PER_ADDRESS_CHECKS) return false;
+    this.active++; this.inflight.set(k, mine + 1);
+    return true;
+  }
+  release(ipRaw) {
+    this.active = Math.max(0, this.active - 1);
+    const k = ipKey(ipRaw), mine = (this.inflight.get(k) || 1) - 1;
+    if (mine > 0) this.inflight.set(k, mine); else this.inflight.delete(k);
+  }
 }
 
 /**
@@ -115,9 +143,9 @@ async function login(db, throttle, username, password, ip, now = Date.now()) {
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(name);
   const known = u && db.prepare('SELECT 1 FROM login_known WHERE user_id = ? AND ip = ? AND last_ok > ?').get(u.id, String(ip), now - KNOWN_MS);
   if (u && !known && u.locked_until > now) return { ok: false, status: 429, error: 'too many failures for this account, wait', retryAfter: Math.ceil((u.locked_until - now) / 1000) };
-  if (!throttle.acquire()) return { ok: false, status: 503, error: 'busy, retry', retryAfter: 1 };
+  if (!throttle.acquire(ip, !!known)) return { ok: false, status: 503, error: 'busy, retry', retryAfter: 1 };
   let good;
-  try { good = (await verifyPasswordAsync(String(password || ''), u ? u.pass_hash : DUMMY)) && !!u; } finally { throttle.release(); }
+  try { good = (await verifyPasswordAsync(String(password || ''), u ? u.pass_hash : DUMMY)) && !!u; } finally { throttle.release(ip); }
   if (!good) {
     throttle.fail(ip);
     const lockedNow = throttle.pairFail(name, ip);
@@ -152,7 +180,8 @@ function parseCookies(h) {
   const out = {};
   for (const part of String(h || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* malformed: ignore this cookie */ }
   }
   return out;
 }
@@ -161,4 +190,4 @@ function sessionCookie(token, { secure, hours }) {
 }
 const clearCookie = (secure) => `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
 
-module.exports = { ROLES, roleRank, COOKIE, hashPassword, verifyPassword, verifyPasswordAsync, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, LOCK_AFTER, SLOW_AFTER, ACCOUNT_MAX_WAIT };
+module.exports = { ROLES, roleRank, COOKIE, hashPassword, verifyPassword, verifyPasswordAsync, safeEqual, randomPassword, addUser, setPassword, Throttle, login, createSession, getSession, destroySession, parseCookies, sessionCookie, clearCookie, sha, ipKey, LOCK_AFTER, SLOW_AFTER, ACCOUNT_MAX_WAIT, RESERVED_CHECKS };

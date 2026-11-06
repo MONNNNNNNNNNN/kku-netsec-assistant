@@ -254,3 +254,69 @@ test('F11 + F14: env overrides make the unedited example config container-ready;
     assert.match(await run(['check']), /WARN {2}wazuh: both the pull .* and the push hook .* counted twice/);
   } finally { wz.server.close(); }
 });
+
+// ---------------------------------------------------------------- anonymous review: privacy (P1-P3)
+
+const PRIVATE = ['db-prod-01', 'core-sw-02', 'ldap-03', 'web-01', 'mail-02', '10.1.1.5', '10.1.1.6', '203.0.113.77', 'oracle', 'svc_backup'];
+function privacyEvents() {
+  const z = (id, host) => T.zabbix({ eventid: String(id), clock: Math.floor(Date.now() / 1000), severity: '4', name: `Disk full on ${host}`, objectid: String(900 + id), value: '1', hosts: [{ host, name: host }] });
+  const w = (id, agent, ip, user) => T.wazuh({ timestamp: new Date().toISOString(), rule: { level: 12, id: `57${id}`, description: 'sshd: brute force trying to get access' }, agent: { id: `00${id}`, name: agent, ip }, data: { srcip: '203.0.113.77', srcuser: user }, full_log: `sshd: Invalid user ${user} from 203.0.113.77 on ${agent}` }, `w${id}`);
+  return [z(1, 'db-prod-01'), z(2, 'core-sw-02'), z(3, 'ldap-03'), w(1, 'web-01', '10.1.1.5', 'oracle'), w(2, 'mail-02', '10.1.1.6', 'svc_backup')];
+}
+
+test('P1: LINE digests and Telegram pushes carry no host, agent, user name or IP of any item', async () => {
+  const sinks = await M.mockSinks();
+  const { app } = await startBoard({
+    notify: { channels: [
+      { name: 'line', type: 'line', apiBase: `${sinks.url}/line`, channelToken: 'line-tok', to: 'C1', minSeverity: 'high' },
+      { name: 'tg', type: 'telegram', apiBase: `${sinks.url}/tg`, botToken: 'tg-tok', chatId: '1', minSeverity: 'high' },
+    ] },
+  });
+  try {
+    for (const e of privacyEvents()) app.pipeline.ingest(e, e.source);
+    app.pipeline.flush();
+    await app.notifier.idle();
+    const line = app.notifier.channels.find((c) => c.name === 'line');
+    assert.equal(app.notifier.pending(line), 5);
+    assert.equal(await app.notifier.flushDigest(line), true);
+    const digest = sinks.requests.find((r) => r.url === '/line/v2/bot/message/push').body.messages[0].text;
+    assert.match(digest, /digest: 5 item/);
+    const pushes = sinks.requests.filter((r) => r.url.startsWith('/tg/')).map((r) => r.body.text);
+    assert.equal(pushes.length, 5);
+    for (const text of [digest, ...pushes]) for (const p of PRIVATE) assert.ok(!text.includes(p), `"${p}" leaked in: ${text}`);
+    assert.match(digest, /HOSTNAME_\d/);
+  } finally { await app.close(); sinks.server.close(); }
+});
+
+test('P2: the LLM request carries no raw IP or user name (masked, then unmasked locally)', async () => {
+  const llm = await M.mockLlm({ mode: 'honest' });
+  const { app } = await startBoard({ llm: { url: llm.url, model: 'm' } });
+  try {
+    for (const e of privacyEvents()) app.pipeline.ingest(e, e.source);
+    app.pipeline.flush();
+    const s = await login(app, 'op');
+    const id = app.db.prepare("SELECT id FROM items WHERE source = 'wazuh' ORDER BY id LIMIT 1").get().id;
+    assert.equal((await api(app, s, 'POST', `/api/items/${id}/explain`, {})).status, 202);
+    await waitFor(() => llm.seen.length >= 1, 10000);
+    const sent = JSON.stringify(llm.seen);
+    for (const p of ['10.1.1.5', '203.0.113.77', 'oracle']) assert.ok(!sent.includes(p), `"${p}" reached the LLM`);
+  } finally { await app.close(); llm.server.close(); }
+});
+
+test('P3: the repository holds no real e-mail, KKU host, public IP or non-noreply commit author', async (t) => {
+  const { execFileSync } = require('node:child_process');
+  try { execFileSync('git', ['rev-parse', '--git-dir'], { cwd: ROOT, stdio: 'ignore' }); } catch { return t.skip('needs git and a git checkout'); }
+  const files = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter((f) => f && !/\.(png|jpg|ico)$|package-lock\.json$/.test(f));
+  const OK_MAIL = /^(noc@uni\.example|noc@example\.org|[\w+.-]+@users\.noreply\.github\.com)$/;
+  // a single-digit first octet is a version number (or 8.8.8.8, the tests' "public endpoint")
+  const OK_IP = /^(10|127|0|255)\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^192\.0\.2\.|^198\.51\.100\.|^203\.0\.113\.|^169\.254\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./; // private, documentation, CGNAT
+  const bad = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const m of text.match(/[\w.%+-]+@[\w-]+(\.[\w-]+)+/g) || []) if (!OK_MAIL.test(m) && !/^[\w-]+@\d/.test(m) && !/@(types|playwright|v\d)/.test(m)) bad.push(`${f}: e-mail ${m}`);
+    for (const m of text.match(/\b[a-z0-9-]+(\.[a-z0-9-]+)*\.kku\.ac\.th\b/gi) || []) if (!/(^|\.)example\.kku\.ac\.th$/i.test(m)) bad.push(`${f}: host ${m}`);
+    for (const m of text.match(/\b(\d{1,3}\.){3}\d{1,3}\b/g) || []) if (!OK_IP.test(m) && m.split('.').every((o) => Number(o) <= 255) && !/^\d\./.test(m)) bad.push(`${f}: IP ${m}`);
+  }
+  for (const a of execFileSync('git', ['log', '--format=%ae%n%ce'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean)) if (!/@users\.noreply\.github\.com$/.test(a)) bad.push(`commit author ${a}`);
+  assert.deepEqual([...new Set(bad)], []);
+});

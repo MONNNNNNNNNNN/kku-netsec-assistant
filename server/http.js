@@ -72,7 +72,8 @@ function createHandler(app) {
   const throttle = new A.Throttle();
   const hookBucket = new Bucket((cfg.hooks && cfg.hooks.ratePerMin) || 120);
   const lastView = new Map();
-  const clientIp = (req) => (cfg.trustProxy && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : req.socket.remoteAddress);
+  const proxies = trustedProxies(cfg.trustProxy);
+  const clientIp = (req) => clientAddress(req.socket.remoteAddress, req.headers['x-forwarded-for'], proxies);
 
   function session(req) {
     const tok = A.parseCookies(req.headers.cookie)[A.COOKIE];
@@ -135,9 +136,13 @@ function createHandler(app) {
     const h = cfg.hooks[name];
     if (!h || !h.token) throw new HttpError(404, 'hook not enabled');
     const ip = clientIp(req);
-    if (!hookBucket.take(ip)) throw new HttpError(429, 'rate limit');
+    // token first: anonymous junk must not use up the rate limit of the real Zabbix/Wazuh caller
     const auth = String(req.headers.authorization || '');
-    if (!auth.startsWith('Bearer ') || !A.safeEqual(auth.slice(7), h.token)) throw new HttpError(401, 'bad hook token');
+    if (!auth.startsWith('Bearer ') || !A.safeEqual(auth.slice(7), h.token)) {
+      if (!hookBucket.take(`bad:${ip}`)) throw new HttpError(429, 'rate limit');
+      throw new HttpError(401, 'bad hook token');
+    }
+    if (!hookBucket.take(ip)) throw new HttpError(429, 'rate limit');
     const body = await readJson(req, 1024 * 1024);
     const list = Array.isArray(body) ? body.slice(0, 500) : [body];
     let n = 0;
@@ -231,9 +236,11 @@ function createHandler(app) {
     ['POST', /^\/hooks\/(zabbix|wazuh|generic)$/, (req, res, m) => hook(req, res, m[1])],
   ];
 
-  return async function handler(req, res) {
-    const url = new URL(req.url, 'http://x');
+  async function handler(req, res) {
+    let url = { pathname: '?' };
     try {
+      // an absolute-form or malformed request-target (GET //a:99999) makes new URL throw
+      try { url = new URL(req.url, 'http://x'); } catch { throw new HttpError(400, 'bad request target'); }
       if (req.method === 'GET' && STATIC[url.pathname]) {
         const [f, type] = STATIC[url.pathname];
         return send(res, 200, fs.readFileSync(path.join(BOARD, f)), { 'content-type': type, 'cache-control': 'no-cache' });
@@ -249,7 +256,33 @@ function createHandler(app) {
       send(res, status, { error: status === 500 ? 'internal error' : e.message });
       if (status === 500) app.log && app.log(`500 ${req.method} ${url.pathname}: ${e.stack || e.message}`);
     }
-  };
+  }
+  return (req, res) => handler(req, res).catch((e) => {
+    try { app.log && app.log(`handler: ${e.message}`); if (!res.headersSent) { res.writeHead(500); } res.end(); } catch { /* socket gone */ }
+  });
 }
 
-module.exports = { createHandler, HttpError, CSP, readBody };
+/**
+ * Proxies whose X-Forwarded-For we believe. `trustProxy: true` means a proxy on this host
+ * (127.0.0.1, ::1); a list names the proxy addresses (IPs or IPv4 CIDRs).
+ */
+function trustedProxies(v) {
+  if (v === true) return ['127.0.0.1', '::1'];
+  return Array.isArray(v) ? v.map(String) : [];
+}
+/**
+ * The client address: walk X-Forwarded-For from the right and return the first hop that is
+ * not one of our proxies. The leftmost entries are whatever the client sent, so they never
+ * count. XFF is ignored unless the TCP peer itself is a trusted proxy.
+ */
+function clientAddress(peer, xff, proxies) {
+  const { allowed } = require('./collectors/syslog.js');
+  const ip = normalizeIp(peer);
+  if (!proxies.length || !xff || !allowed(proxies, ip)) return ip;
+  const hops = String(xff).split(',').map((s) => normalizeIp(s.trim())).filter(Boolean);
+  for (let i = hops.length - 1; i >= 0; i--) if (!allowed(proxies, hops[i])) return hops[i];
+  return hops[0] || ip;
+}
+function normalizeIp(ip) { return String(ip || '').replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1'); }
+
+module.exports = { createHandler, HttpError, CSP, readBody, clientAddress, trustedProxies };

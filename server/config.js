@@ -80,13 +80,19 @@ function literalSecrets(o, p = '') {
 
 /**
  * Deployment overrides from the environment (Docker/systemd), applied over the file:
- * NETSEC_LISTEN_HOST, NETSEC_LISTEN_PORT, NETSEC_DATA_DIR, NETSEC_BACKUP_DIR, NETSEC_SYSLOG_BIND.
- * They let the unedited example config run in a container (listen 0.0.0.0, data in /data).
+ * NETSEC_LISTEN_HOST, NETSEC_LISTEN_PORT, NETSEC_DATA_DIR, NETSEC_BACKUP_DIR, NETSEC_SYSLOG_BIND,
+ * NETSEC_TRUST_PROXY ("true", "false" or a comma list of proxy addresses/CIDRs).
+ * They let the unedited example config run in a container (listen 0.0.0.0, data in /data; in
+ * Docker every client arrives from the bridge gateway, so the proxy's X-Forwarded-For is needed).
  */
 function envOverrides(env = process.env) {
   const o = {};
   if (env.NETSEC_LISTEN_HOST || env.NETSEC_LISTEN_PORT) o.listen = { ...(env.NETSEC_LISTEN_HOST ? { host: env.NETSEC_LISTEN_HOST } : {}), ...(env.NETSEC_LISTEN_PORT ? { port: Number(env.NETSEC_LISTEN_PORT) } : {}) };
   if (env.NETSEC_DATA_DIR) o.dataDir = env.NETSEC_DATA_DIR;
+  if (env.NETSEC_TRUST_PROXY !== undefined) {
+    const v = env.NETSEC_TRUST_PROXY.trim();
+    o.trustProxy = v === 'true' ? true : v === 'false' || v === '' ? false : v.split(',').map((s) => s.trim()).filter(Boolean);
+  }
   if (env.NETSEC_BACKUP_DIR || env.NETSEC_SYSLOG_BIND) {
     o.sources = {};
     if (env.NETSEC_BACKUP_DIR) o.sources.configdrop = { dir: env.NETSEC_BACKUP_DIR };

@@ -1,5 +1,8 @@
 # TLS in front of the board (Caddy). Then set in netsec.json: "cookieSecure": true, "trustProxy": true,
 # "publicUrl": "https://netsec-board.example.kku.ac.th"
+# trustProxy true believes X-Forwarded-For only from 127.0.0.1/::1 (and only its rightmost hop); for a
+# proxy on another host list its address instead: "trustProxy": ["10.0.0.5"]. The Docker compose file
+# already sets NETSEC_TRUST_PROXY to the bridge range.
 netsec-board.example.kku.ac.th {
 	# campus certificate, or "tls internal" for a private CA
 	tls /etc/caddy/certs/board.crt /etc/caddy/certs/board.key

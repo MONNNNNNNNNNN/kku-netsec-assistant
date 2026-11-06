@@ -121,11 +121,13 @@ async function createApp(loaded, opts = {}) {
     app.notifier.start();
   }
 
-  app.server = http.createServer(createHandler(app));
-  app.server.headersTimeout = 20000;
-  app.server.requestTimeout = 60000;
+  // slow clients: headers within 20 s, whole request within 60 s; Node checks these timers every
+  // connectionsCheckingInterval (default 30 s), so check every 5 s to actually enforce them
+  app.server = http.createServer({ connectionsCheckingInterval: opts.connCheckMs ?? 5000 }, createHandler(app));
+  app.server.headersTimeout = opts.headersTimeoutMs ?? 20000;
+  app.server.requestTimeout = opts.requestTimeoutMs ?? 60000;
   if (opts.listen !== false) {
-    await new Promise((res) => app.server.listen(opts.port ?? cfg.listen.port, opts.host ?? cfg.listen.host, res));
+    await new Promise((res, rej) => { app.server.once('error', rej); app.server.listen(opts.port ?? cfg.listen.port, opts.host ?? cfg.listen.host, () => { app.server.removeListener('error', rej); res(); }); });
     const a = app.server.address();
     app.url = `http://${a.family === 'IPv6' ? `[${a.address}]` : a.address}:${a.port}`;
   }
@@ -154,11 +156,20 @@ async function main() {
   console.error(`[board] NetSec Board ${VERSION} on ${app.url} (data ${loaded.cfg.dataDir})`);
   if (app.syslogAddress) console.error(`[board] syslog on ${JSON.stringify(app.syslogAddress)}`);
   console.error(`[board] pull sources: ${[...app.scheduler.jobs.keys()].join(', ') || 'none'}; LLM: ${app.llmq.enabled ? app.llmq.cfg.model : 'off'}`);
+  // last resort: a bug in one request or job must not take the board down (log it, keep serving)
+  process.on('unhandledRejection', (e) => console.error(`[board] unhandled rejection: ${e && e.stack ? e.stack : e}`));
   const stop = async () => { await app.close(); process.exit(0); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 }
 
-if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => {
+    if (e.code === 'EADDRINUSE' || e.code === 'EACCES') console.error(`[board] cannot listen on ${e.address}:${e.port} (${e.code === 'EADDRINUSE' ? 'already in use: is another board or the demo still running?' : 'permission denied'}). Stop the other process, or set listen.port in the config / NETSEC_LISTEN_PORT.`);
+    else if (e.code === 'ENOENT' && /netsec\.json|\.json'?$/.test(e.path || '')) console.error(`[board] no config file ${e.path}: run "node cli/board.js init" first (or pass --config <file>).`);
+    else console.error(e.stack || e.message);
+    process.exit(1);
+  });
+}
 
 module.exports = { createApp, makeJob, PULLERS, VERSION };
