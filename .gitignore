@@ -13,3 +13,5 @@ secrets.env
 .env
 backups/
 *.lock
+lab/botsv1/
+lab/data/

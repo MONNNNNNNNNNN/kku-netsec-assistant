@@ -6,6 +6,8 @@
 //   severity  = {EVENT.NSEVERITY}   status    = {EVENT.STATUS}   (PROBLEM / RESOLVED)
 //   name      = {EVENT.NAME}        host      = {HOST.NAME}       opdata = {EVENT.OPDATA}
 // Use it in an action for problem and recovery operations. Read-only for Zabbix: it only POSTs.
+// Make sure the media type is Enabled (one created through the API is disabled by default), and give
+// the action's user a media entry of this type. Tested against Zabbix 7.0.32 (lab/x4-zabbix.js).
 var params = JSON.parse(value);
 var req = new HttpRequest();
 req.addHeader('Content-Type: application/json');

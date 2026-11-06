@@ -73,7 +73,9 @@ async function zabbixRpc(cfg, method, params, auth = true) {
   }
   return r.json.result;
 }
-const ZBX_OUTPUT = ['eventid', 'clock', 'severity', 'name', 'objectid', 'acknowledged', 'opdata', 'r_eventid'];
+// "value" (1 problem, 0 recovery) must be requested: real Zabbix returns only the listed fields,
+// and without it no recovery ever resolved a card (found against Zabbix 7.0.32, lab/x4-zabbix.js)
+const ZBX_OUTPUT = ['eventid', 'clock', 'severity', 'name', 'objectid', 'acknowledged', 'opdata', 'r_eventid', 'value'];
 async function pullZabbix(cfg, cursor) {
   const limit = cfg.pageSize || 500;
   const lagSec = Math.ceil((cfg.lagWindowMs ?? LAG_MS) / 1000);
@@ -91,13 +93,17 @@ async function pullZabbix(cfg, cursor) {
     last = Math.max(last || 0, Number(ev.eventid));
     maxClock = Math.max(maxClock || 0, Number(ev.clock) || 0);
   };
+  // Everything fetched in this run is applied in eventid order at the end: the open-problem seed
+  // must not be applied before older history of the same trigger (a problem that flapped in the
+  // lookback was otherwise left resolved while open; found against Zabbix 7.0.32)
+  const fetched = [];
   // first run: the problems that are open right now, however old (event.get alone would only
   // see the initial lookback). problem.get has no host names, so fetch those events by id.
   if (!cursor) {
     const open = await zabbixRpc(cfg, 'problem.get', { output: ['eventid'], source: 0, object: 0, recent: false, sortfield: ['eventid'], sortorder: 'ASC', limit: 5000 });
     const ids = (open || []).map((p) => p.eventid);
     for (let i = 0; i < ids.length; i += limit) {
-      for (const ev of await zabbixRpc(cfg, 'event.get', { output: ZBX_OUTPUT, eventids: ids.slice(i, i + limit), selectHosts: ['host', 'name'], selectTags: ['tag', 'value'] })) take(ev);
+      fetched.push(...await zabbixRpc(cfg, 'event.get', { output: ZBX_OUTPUT, eventids: ids.slice(i, i + limit), selectHosts: ['host', 'name'], selectTags: ['tag', 'value'] }));
     }
   }
   // then events by time: from the lag window before the newest clock seen (or the initial
@@ -115,10 +121,12 @@ async function pullZabbix(cfg, cursor) {
       ...(from ? { eventid_from: String(from) } : {}),
     };
     const rows = await zabbixRpc(cfg, 'event.get', params);
-    for (const ev of rows) take(ev);
+    fetched.push(...rows);
     if (rows.length < limit) break;
     from = Math.max(...rows.map((r) => Number(r.eventid))) + 1;
   }
+  fetched.sort((a, b) => Number(a.eventid) - Number(b.eventid));
+  for (const ev of fetched) take(ev);
   if (maxClock != null) seen = keepSeen(seen, maxClock - lagSec);
   return { events, cursor: last ? { eventid: String(last), clock: maxClock, seen } : cursor || null };
 }

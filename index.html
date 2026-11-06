@@ -1181,8 +1181,33 @@ node cli/netsec.js inject-eval logs.log --ablate --batch 5 \
     [/(จัด|ระบุ|รายงาน).{0,20}(ปลอดภัย|ไม่เป็นอันตราย|ปกติ)/, 'verdict steering (Thai)'],
     [/<\/?(system|assistant|user|data|log|instructions?)>|\[\/?(INST|SYS)\]|<\|im_(start|end)\|>/i, 'prompt delimiter'],
     [/[​-‏⁠-⁤﻿]|[\u{e0000}-\u{e007f}]/u, 'invisible characters'],
-    [/[A-Za-z0-9+/]{60,}={0,2}/, 'long base64 blob'],
   ];
+
+  /*
+   * An encoded instruction: a base64/base64url run that DECODES TO READABLE TEXT. Matching the
+   * alphabet alone flagged every long URL path ("/" is a base64 character) and every OCSP GET
+   * request (base64 DER): on 510,899 real FortiGate lines (BOTSv1) all 851 such flags were
+   * false positives. Binary payloads (DER, images, tokens) decode to non-text and are not flagged.
+   */
+  function encodedText(s) {
+    const decode = typeof atob === 'function' ? atob : null;
+    if (!decode) return false;
+    const t = String(s).replace(/%2B/gi, '+').replace(/%2F/gi, '/').replace(/%3D/gi, '=');
+    for (const run of t.match(/[A-Za-z0-9+/_-]{40,}={0,2}/g) || []) {
+      for (const part of run.split('/').concat(run)) { // a path segment, or the whole run
+        let b = part.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+        if (b.length < 40) continue;
+        b = b.slice(0, b.length - (b.length % 4));
+        let d;
+        try { d = decode(b); } catch { continue; }
+        let printable = 0;
+        for (let i = 0; i < d.length; i++) { const c = d.charCodeAt(i); if ((c >= 32 && c < 127) || c === 9 || c === 10 || c === 13) printable++; }
+        // prose, not structured data: JWT/JSON payloads decode to text too, but not to sentences
+        if (printable / d.length >= 0.95 && /(?:[A-Za-z']{2,}[ \t]+){3,}[A-Za-z]/.test(d)) return true;
+      }
+    }
+    return false;
+  }
 
   /** Heuristic hint only. The guard's trusted-field floor does not depend on it. */
   function detectInjection(value) {
@@ -1191,6 +1216,7 @@ node cli/netsec.js inject-eval logs.log --ablate --batch 5 \
     // attackers write "ignore-previous-instructions" in URLs and DNS labels
     const spaced = s.replace(/[-_./+%]+/g, ' ');
     for (const [re, why] of INJECTION_PATTERNS) if (re.test(s) || re.test(spaced)) reasons.push(why);
+    if (encodedText(s)) reasons.push('base64-encoded text');
     return { flagged: reasons.length > 0, reasons: [...new Set(reasons)] };
   }
 

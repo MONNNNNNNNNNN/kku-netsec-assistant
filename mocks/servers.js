@@ -103,6 +103,15 @@ function zabbixEvent(i, t = Date.now()) {
   return { eventid: String(++zbxSeq), source: '0', object: '0', value: '1', acknowledged: '0', clock: String(Math.floor(t / 1000)), opdata: '', ...kinds[i % kinds.length] };
 }
 
+function project(e, p) {
+  if (!Array.isArray(p.output)) return e;
+  const o = {};
+  for (const k of p.output) if (e[k] !== undefined) o[k] = e[k];
+  if (p.selectHosts) o.hosts = (e.hosts || []).map((h) => ({ hostid: h.hostid, host: h.host, name: h.name }));
+  if (p.selectTags) o.tags = e.tags || [];
+  return o;
+}
+
 async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version = '7.0.5', port = 0, host } = {}) {
   const state = { events: [0, 1, 2, 3].map((i) => zabbixEvent(i, Date.now() - (4 - i) * 60000)), calls: [], fail: false, stripAuth };
   const server = http.createServer(async (req, res) => {
@@ -114,7 +123,8 @@ async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version
     const reply = (result) => json(res, 200, { jsonrpc: '2.0', result, id: m.id });
     const error = (code, message, data) => json(res, 200, { jsonrpc: '2.0', error: { code, message, data }, id: m.id });
     if (m.auth !== undefined) return error(-32602, 'Invalid params.', 'Invalid parameter "/": unexpected parameter "auth".');
-    if (m.method === 'apiinfo.version') return reply(version);
+    // real Zabbix (7.0): apiinfo.version must be called WITHOUT an Authorization header
+    if (m.method === 'apiinfo.version') return req.headers.authorization ? error(-32602, 'Invalid params.', 'The "apiinfo.version" method must be called without authorization header.') : reply(version);
     const auth = state.stripAuth ? '' : req.headers.authorization;
     if (auth !== `Bearer ${token}`) return error(-32602, 'Invalid params.', 'Not authorized.');
     if (m.method === 'host.get') return reply([{ hostid: '10501' }]);
@@ -128,7 +138,8 @@ async function mockZabbix({ token = 'zbx-test-token', stripAuth = false, version
       const ids = p.eventids ? new Set([].concat(p.eventids).map(String)) : null;
       let rows = state.events.filter((e) => (!ids || ids.has(e.eventid)) && (p.eventid_from ? Number(e.eventid) >= Number(p.eventid_from) : true) && (p.time_from ? Number(e.clock) >= Number(p.time_from) : true) && (!values || values.includes(String(e.value))));
       rows = rows.sort((a, b) => Number(a.eventid) - Number(b.eventid)).slice(0, p.limit || 1000);
-      return reply(rows);
+      // like the real API: only the fields listed in `output` (+ hosts/tags when selected)
+      return reply(rows.map((e) => project(e, p)));
     }
     error(-32601, 'Method not found.', `Incorrect API "${m.method}".`);
   });

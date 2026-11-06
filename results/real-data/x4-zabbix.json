@@ -1,0 +1,50 @@
+{
+  "zabbix": "7.0.32",
+  "ranAt": "2026-11-06T18:24:31.544Z",
+  "setup": [
+    {
+      "url": "http://127.0.0.1:18080",
+      "lines": [
+        "ok    Zabbix API: Zabbix 7.0.32"
+      ]
+    },
+    {
+      "url": "http://127.0.0.1:18081",
+      "lines": [
+        "FAIL  Zabbix API: Zabbix API error: Invalid params. Not authorized.",
+        "hint: The API token was not accepted. If the token is valid, the web server may strip the Authorization header: Apache \"CGIPassAuth On\" (or SetEnvIf Authorization \"(.*)\" HTTP_AUTHORIZATION=$1) for api_jsonrpc.php; nginx \"fastcgi_param HTTP_AUTHORIZATION $http_authorization;\".",
+        "not verified: Zabbix API (kept in the config; run \"node cli/board.js check\" after fixing)"
+      ]
+    }
+  ],
+  "zabbixDetectMs": 3817,
+  "baseline": {
+    "cardOnFirstPull": true,
+    "cardsOnFirstPull": 1,
+    "pushes": 0
+  },
+  "webhook": {
+    "problemCard": true
+  },
+  "recovery": {
+    "pullMs": 6008,
+    "webhookResolved": true
+  },
+  "recurrence": {
+    "pullMs": 3005,
+    "acked": null,
+    "count": 10,
+    "pushes": 1,
+    "webhookReopened": true,
+    "webhookMs": 3006
+  },
+  "sourceState": {
+    "status": "ok",
+    "received": 19,
+    "fails": 0,
+    "last_error": null
+  },
+  "hookState": {
+    "received": 7
+  }
+}

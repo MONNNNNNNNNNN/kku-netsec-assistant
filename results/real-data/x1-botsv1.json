@@ -1,0 +1,246 @@
+{
+  "dataset": {
+    "name": "Splunk Boss of the SOC v1 (BOTSv1), FortiGate sourcetypes",
+    "license": "CC0 1.0 Universal (github.com/splunk/botsv1/blob/master/LICENSE)",
+    "source": "https://s3.amazonaws.com/botsdataset/botsv1/json-by-sourcetype/",
+    "sha256": [
+      "67d6a46f77e601a65605c2025b046c7ec750af301965ff8b825ed4a7c9a1c1a1  botsv1.fgt_event.json.gz",
+      "56b3830f15ff5e0eb693ef17091ca3326f8241efea5c1b5a8124b9f0dec74a77  botsv1.fgt_utm.json.gz",
+      "68ce7b85b096a2336e263014891cc1d05ae9879e3699f81f1f12fb393fa2f45d  botsv1.fgt_traffic.first200k.json"
+    ],
+    "fortiosEra": "2016 (FortiOS 5.x, FGT60D)"
+  },
+  "ranAt": "2026-11-06T18:03:26.630Z",
+  "offline": {
+    "lines": {
+      "fgt_event": 53422,
+      "fgt_utm": 257477,
+      "fgt_traffic": 200000
+    },
+    "parsed": 510899,
+    "withDeviceIds": 510899,
+    "subtypes": {
+      "event/system": {
+        "n": 53422,
+        "severity": {
+          "info": 51027,
+          "medium": 2190,
+          "critical": 205
+        }
+      },
+      "utm/webfilter": {
+        "n": 124049,
+        "severity": {
+          "info": 124046,
+          "high": 3
+        }
+      },
+      "utm/app-ctrl": {
+        "n": 128931,
+        "severity": {
+          "info": 119700,
+          "critical": 9231
+        }
+      },
+      "utm/virus": {
+        "n": 9,
+        "severity": {
+          "critical": 9
+        }
+      },
+      "utm/ips": {
+        "n": 4488,
+        "severity": {
+          "medium": 21,
+          "low": 4230,
+          "high": 219,
+          "critical": 18
+        }
+      },
+      "traffic/forward": {
+        "n": 197720,
+        "severity": {
+          "info": 197720
+        }
+      },
+      "traffic/local": {
+        "n": 2280,
+        "severity": {
+          "info": 2280
+        }
+      }
+    },
+    "severity": {
+      "info": 494773,
+      "medium": 2211,
+      "critical": 9463,
+      "high": 222,
+      "low": 4230
+    },
+    "untrustedKeys": {
+      "msg": 310886,
+      "hostname": 249001,
+      "user": 596,
+      "url": 240494,
+      "filename": 9,
+      "agent": 9,
+      "srcname": 2280
+    },
+    "trustedKeys": {
+      "date": 510899,
+      "time": 510899,
+      "devname": 510899,
+      "devid": 510899,
+      "logid": 510899,
+      "type": 510899,
+      "subtype": 510899,
+      "level": 510899,
+      "vd": 510899,
+      "logdesc": 53422,
+      "interface": 12826,
+      "total": 8426,
+      "used": 10424,
+      "action": 494003,
+      "cpu": 33945,
+      "mem": 33945,
+      "totalsession": 33945,
+      "disk": 33945,
+      "bandwidth": 33945,
+      "setuprate": 33945,
+      "disklograte": 33945,
+      "fazlograte": 33945,
+      "dhcp_msg": 4400,
+      "mac": 4400,
+      "ip": 4400,
+      "lease": 4400,
+      "count": 2190,
+      "duration": 202184,
+      "limit": 2190,
+      "fams_pause": 1998,
+      "status": 6254,
+      "reason": 2389,
+      "ui": 596,
+      "sn": 391,
+      "profile": 128748,
+      "state": 186,
+      "eventtype": 257477,
+      "policyid": 457477,
+      "sessionid": 457477,
+      "srcip": 457477,
+      "srcport": 457293,
+      "srcintf": 439961,
+      "dstip": 457477,
+      "dstport": 457293,
+      "proto": 457477,
+      "service": 457477,
+      "reqtype": 124049,
+      "sentbyte": 324036,
+      "rcvdbyte": 324036,
+      "direction": 128532,
+      "method": 124049,
+      "cat": 124049,
+      "catdesc": 124043,
+      "appid": 144004,
+      "applist": 144095,
+      "appcat": 328931,
+      "app": 146284,
+      "apprisk": 144003,
+      "dstintf": 217516,
+      "crscore": 51775,
+      "crlevel": 51775,
+      "quarskip": 9,
+      "virus": 2,
+      "dtype": 2,
+      "ref": 4490,
+      "virusid": 2,
+      "analyticscksum": 9,
+      "analyticssubmit": 9,
+      "severity": 4488,
+      "srccountry": 204488,
+      "attack": 4488,
+      "attackid": 4487,
+      "incidentserialno": 4488,
+      "poluuid": 161962,
+      "dstcountry": 200000,
+      "trandisp": 200000,
+      "transip": 161894,
+      "transport": 161894,
+      "appact": 15073,
+      "sentpkt": 53202,
+      "rcvdpkt": 15164,
+      "utmaction": 3125,
+      "countweb": 3061,
+      "countapp": 3088,
+      "craction": 38044,
+      "devtype": 2280,
+      "osname": 2280,
+      "osversion": 2280,
+      "mastersrcmac": 2280,
+      "srcmac": 2280,
+      "tranip": 68,
+      "tranport": 68
+    },
+    "flagged": 0,
+    "flaggedSamples": [],
+    "flagReasons": {},
+    "duplicateKeyLines": 0,
+    "duplicateKeys": {},
+    "syslogFormat": {
+      "raw": 510899
+    }
+  },
+  "timeline": {
+    "events": 510899,
+    "spanDays": 28,
+    "filteredBelowLow": 494773,
+    "cards": 145,
+    "burstCards": 1,
+    "cardsBySeverity": {
+      "medium": 10,
+      "critical": 127,
+      "low": 2,
+      "high": 6
+    },
+    "eventsInCards": 16126,
+    "pushes": 31,
+    "lineMessages": 3,
+    "busiestDays": [
+      {
+        "day": "2016-08-28",
+        "events": 114966,
+        "newCards": 0
+      },
+      {
+        "day": "2016-08-10",
+        "events": 29993,
+        "newCards": 20
+      },
+      {
+        "day": "2016-08-24",
+        "events": 22620,
+        "newCards": 122
+      },
+      {
+        "day": "2016-08-22",
+        "events": 14456,
+        "newCards": 0
+      },
+      {
+        "day": "2016-08-07",
+        "events": 14300,
+        "newCards": 0
+      }
+    ]
+  },
+  "throughput": {
+    "lines": 410899,
+    "ms": 77032,
+    "linesPerSec": 5334,
+    "received": 16126,
+    "filtered": 394773,
+    "dropped": 0,
+    "unsupported": 0,
+    "cpu": "4x Neoverse-N1",
+    "node": "v22.23.4"
+  }
+}

@@ -1,0 +1,93 @@
+# NetSec Board real-data lab (not part of the product install). See lab/README.md.
+#   docker compose -f lab/compose.yaml up -d        Zabbix 7.0 LTS + agent + a header-stripping proxy
+#   node lab/zabbix-setup.js                        token, test host + trigger, webhook media type
+# Everything binds to 127.0.0.1 or the lab bridge nsb-lab0 (172.30.77.0/24); nothing is public.
+name: nsb-lab
+
+networks:
+  lab:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: nsb-lab0
+    ipam:
+      config:
+        - subnet: 172.30.77.0/24
+          gateway: 172.30.77.1
+
+services:
+  zbx-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix-lab-only
+      POSTGRES_DB: zabbix
+    networks: [lab]
+    volumes: [zbx-db:/var/lib/postgresql/data]
+
+  zbx-server:
+    image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    environment:
+      DB_SERVER_HOST: zbx-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix-lab-only
+      ZBX_STARTALERTERS: "2"
+    depends_on: [zbx-db]
+    networks: [lab]
+
+  zbx-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+    environment:
+      ZBX_SERVER_HOST: zbx-server
+      DB_SERVER_HOST: zbx-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix-lab-only
+      PHP_TZ: Asia/Bangkok
+    depends_on: [zbx-server]
+    ports: ["127.0.0.1:18080:8080"]
+    networks: [lab]
+
+  zbx-agent:
+    image: zabbix/zabbix-agent2:alpine-7.0-latest
+    hostname: lab-agent
+    environment:
+      ZBX_HOSTNAME: lab-agent
+      ZBX_SERVER_HOST: zbx-server
+    networks: [lab]
+
+  # a web server in front of the API that drops the Authorization header (a common misconfig):
+  # the board's setup/check must explain it
+  zbx-strip:
+    image: nginx:1.27-alpine
+    ports: ["127.0.0.1:18081:80"]
+    networks: [lab]
+    configs:
+      - source: strip
+        target: /etc/nginx/conf.d/default.conf
+
+  # the board receiving the real Zabbix webhook (push), inside the lab network
+  board-hook:
+    image: node:22.13-bookworm-slim
+    working_dir: /app
+    command: ["node", "server/main.js", "--config", "/lab/board-hook.json"]
+    volumes:
+      - ..:/app:ro
+      - ./data:/lab
+    ports: ["127.0.0.1:18480:8480"]
+    networks:
+      lab:
+        ipv4_address: 172.30.77.80
+    user: "${LAB_UID:-1000}:${LAB_GID:-1000}"
+
+configs:
+  strip:
+    content: |
+      server {
+        listen 80;
+        location / {
+          proxy_pass http://zbx-web:8080;
+          proxy_set_header Authorization "";
+        }
+      }
+
+volumes:
+  zbx-db:

@@ -58,7 +58,7 @@ function finish(e) {
 
 // ---------------------------------------------------------------- FortiGate (syslog)
 const FGT_LEVEL = { emergency: 'critical', alert: 'critical', critical: 'critical', error: 'high', warning: 'medium', notice: 'info', information: 'info', debug: 'info' };
-const FGT_IPS = { critical: 'critical', high: 'high', medium: 'medium', low: 'low', info: 'info', informational: 'info' };
+const FGT_IPS = { critical: 'critical', high: 'high', elevated: 'medium', medium: 'medium', low: 'low', info: 'info', informational: 'info' };
 
 function fortigate(f, now = Date.now()) {
   const trusted = {}, untrusted = {};
@@ -66,6 +66,9 @@ function fortigate(f, now = Date.now()) {
   const kind = [f.type, f.subtype].filter(Boolean).join('/') || 'log';
   // UTM logs carry their own threat severity (IPS signatures are logged at level "alert" by
   // default, which would make every detection critical); other logs use the syslog level
+  // threat severity (IPS/AV), else the client-reputation level when one was scored. NOT apprisk:
+  // that is the application signature's static rating (on BOTSv1, 116,863 benign app-ctrl lines
+  // such as OCSP carry apprisk=elevated, while the 9,231 Cerber C2 lines carry crlevel=critical)
   const utmSev = f.type === 'utm' ? FGT_IPS[String(f.severity || f.crlevel || '').toLowerCase()] : null;
   const det = utmSev || FGT_LEVEL[f.level] || 'info';
   const what = f.attack || f.virus || f.logdesc || f.catdesc || f.action || '';
