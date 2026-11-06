@@ -7,7 +7,7 @@ name: netsec-board
 
 services:
   board:
-    image: ${NETSEC_IMAGE:-ghcr.io/monnnnnnnnnnnn/netsec-board}:${NETSEC_VERSION:-latest}
+    image: ${NETSEC_IMAGE:-ghcr.io/monnnnnnnnnnn/netsec-board}:${NETSEC_VERSION:-latest}
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

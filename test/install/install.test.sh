@@ -35,6 +35,7 @@ node /login.js http://127.0.0.1:8480 ci-install-pass-1
 before=$(sha256sum /tmp/nb/secrets.env)
 sh /src/install.sh --node --non-interactive --version main --dir /tmp/nb > /tmp/rerun.log 2>&1 || { cat /tmp/rerun.log; exit 1; }
 test "$before" = "$(sha256sum /tmp/nb/secrets.env)"
+grep -q "configured before" /tmp/rerun.log   # an upgrade does not ask again
 test -f /tmp/nb/data/board.db
 echo "node re-run kept secrets and data"
 IN

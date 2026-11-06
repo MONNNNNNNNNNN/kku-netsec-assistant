@@ -143,3 +143,15 @@ test('the board creates the admin from NETSEC_ADMIN_HASH only while no user exis
   assert.equal(A.bootstrapAdmin(db, { ...env, NETSEC_ADMIN_USER: 'second' }), null, 'never a second time');
   db.close();
 });
+
+test('C2: the GHCR image namespace everywhere is the repository owner, lowercased', () => {
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const owner = read('install.sh').match(/NETSEC_REPO:-([^/]+)\//)[1];
+  const want = `ghcr.io/${owner.toLowerCase()}/netsec-board`;
+  for (const f of ['install.sh', 'deploy/compose.install.yaml', 'README.md']) {
+    const found = [...new Set(read(f).match(/ghcr\.io\/[a-z0-9-]+\/netsec-board/g) || [])];
+    assert.deepEqual(found, [want], `${f}: ${found.join(', ')}`);
+  }
+  assert.match(read('.github/workflows/image.yml'), /GITHUB_REPOSITORY_OWNER,,/, 'the workflow derives it, no hardcoded copy');
+  assert.match(read('README.md'), new RegExp(`raw\\.githubusercontent\\.com/${owner}/kku-netsec-assistant/main/install\\.sh`));
+});

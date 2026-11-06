@@ -2,20 +2,27 @@
 # NetSec Board installer: one command, Docker if present, otherwise Node >= 22.13 (+ systemd as root).
 #
 #   curl -fsSL https://raw.githubusercontent.com/MONNNNNNNNNNN/kku-netsec-assistant/main/install.sh | sh
-#   ./install.sh [--docker|--node] [--dir DIR] [--version vX.Y.Z|main] [--non-interactive] [--start]
+#   ./install.sh [--docker|--node] [--dir DIR] [--version vX.Y.Z|main] [--non-interactive] [--reconfigure] [--start]
+#   (with curl: ... | sh -s -- --docker --dir /srv/netsec-board)
 #
-# Re-running it upgrades the app and keeps netsec.json, secrets.env and the data.
+# Re-running it upgrades the app and keeps netsec.json, secrets.env and the data; the setup
+# questions are asked again only with --reconfigure.
 # It never installs system packages; it tells you the one command when something is missing.
 # Overrides (tests, mirrors): NETSEC_IMAGE, NETSEC_TARBALL (file or URL), NETSEC_REPO.
 set -eu
 
+# Everything runs inside main(), called on the last line: under `curl | sh` a download that
+# breaks off midway is then never executed in part (a cut-off line could be destructive).
+main() {
+
 REPO="${NETSEC_REPO:-MONNNNNNNNNNN/kku-netsec-assistant}"
-IMAGE="${NETSEC_IMAGE:-ghcr.io/monnnnnnnnnnnn/netsec-board}"
+IMAGE="${NETSEC_IMAGE:-ghcr.io/monnnnnnnnnnn/netsec-board}"
 MODE=""
 DIR=""
 VERSION="${NETSEC_VERSION:-}"
 NONINTERACTIVE=0
 START=0
+RECONFIGURE=0
 T0=$(date +%s)
 
 say() { printf '%s\n' "$*"; }
@@ -30,6 +37,7 @@ while [ $# -gt 0 ]; do
     --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION="$2"; shift ;;
     --non-interactive) NONINTERACTIVE=1 ;;
     --start) START=1 ;;
+    --reconfigure) RECONFIGURE=1 ;;
     -h|--help) sed -n '2,10p' "$0" 2>/dev/null || true; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
@@ -44,7 +52,11 @@ if [ -z "$DIR" ]; then
 fi
 
 # the wizard needs a terminal; under `curl | sh` stdin is this script, so answers come from /dev/tty
-if [ "$NONINTERACTIVE" = 0 ] && ! (exec </dev/tty) 2>/dev/null; then
+# an upgrade (configured before) skips the questions
+configured() { [ -f "$DIR/secrets.env" ] && [ -f "$DIR/netsec.json" ] && ! cmp -s "$DIR/netsec.json" "$1"; }
+ASK=1
+if [ "$RECONFIGURE" = 0 ] && [ -f "$DIR/secrets.env" ]; then ASK=0; fi
+if [ "$NONINTERACTIVE" = 0 ] && [ "$ASK" = 1 ] && ! (exec </dev/tty) 2>/dev/null; then
   die "no terminal for the setup questions: run it in a shell, or use --non-interactive with NETSEC_SETUP_* variables (see cli/setup.js)"
 fi
 
@@ -118,6 +130,7 @@ if [ "$MODE" = docker ]; then
   fi
 
   step "setup"
+  if [ "$ASK" = 0 ] && configured "$DIR/netsec.example.json"; then say "configured before: keeping netsec.json and secrets.env (--reconfigure asks again)"; else
   # the wizard runs in the image as you, writing only into $DIR (never the data volume)
   set -- docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -v "$DIR:/setup" -e NETSEC_CONFIG=/setup/netsec.json -e NETSEC_HOST_DIR="$DIR"
   for v in $(env | sed -n 's/^\(NETSEC_SETUP_[A-Z_]*\)=.*/\1/p'); do set -- "$@" -e "$v"; done
@@ -125,6 +138,7 @@ if [ "$MODE" = docker ]; then
     "$@" -T board node cli/board.js setup --config /setup/netsec.json --non-interactive --compose-env --docker
   else
     "$@" board node cli/board.js setup --config /setup/netsec.json --compose-env --docker </dev/tty
+  fi
   fi
   # .env from the wizard (binds) + version lines
   grep -v '^NETSEC_VERSION=\|^NETSEC_IMAGE=' .env > .env.tmp || true
@@ -166,7 +180,9 @@ else
   mkdir -p "$DIR/backups" "$DIR/data"; chmod 700 "$DIR/data"
 
   step "setup"
-  if [ "$NONINTERACTIVE" = 1 ]; then
+  if [ "$ASK" = 0 ] && configured "$DIR/app/netsec.example.json"; then
+    say "configured before: keeping netsec.json and secrets.env (--reconfigure asks again)"
+  elif [ "$NONINTERACTIVE" = 1 ]; then
     node "$DIR/app/cli/board.js" setup --config "$DIR/netsec.json" --non-interactive
   else
     node "$DIR/app/cli/board.js" setup --config "$DIR/netsec.json" </dev/tty
@@ -223,3 +239,6 @@ if grep -q '"syslog": {[^}]*"enabled": true' "$DIR/netsec.json" 2>/dev/null || s
   say "    set format rfc5424"
   say "  end"
 fi
+}
+
+main "$@"
