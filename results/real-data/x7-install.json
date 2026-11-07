@@ -1,0 +1,18 @@
+{
+  "installMs": 10005,
+  "wizardChecks": [
+    "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*",
+    "ok    Zabbix API: Zabbix 7.0.32",
+    "ok    LLM endpoint class: loopback"
+  ],
+  "first": {
+    "firstCardsMs": 3617,
+    "cardsBySource": [
+      {
+        "source": "wazuh",
+        "n": 46
+      }
+    ]
+  },
+  "ranAt": "2026-11-07T07:25:01.186Z"
+}

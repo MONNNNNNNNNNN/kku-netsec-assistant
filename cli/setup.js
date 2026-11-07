@@ -26,7 +26,7 @@ const readline = require('node:readline');
 const A = require('../server/auth.js');
 const { merge } = require('../server/config.js');
 const { requestOk } = require('../server/net.js');
-const { checkZabbix } = require('../server/collectors/pull.js');
+const { checkZabbix, wazuhHint } = require('../server/collectors/pull.js');
 const { SENDERS, channelConfig } = require('../server/notify.js');
 const LLM = require('../server/llm.js');
 const { validEntry } = require('../server/collectors/syslog.js');
@@ -178,7 +178,7 @@ async function setup(opts) {
     secrets.NETSEC_WAZUH_PASSWORD = pw; wz.password = 'env:NETSEC_WAZUH_PASSWORD';
     const r = await tested('Wazuh indexer', async () => {
       const u = `${wz.url.replace(/\/+$/, '')}/${encodeURIComponent(wz.index || 'wazuh-alerts-*').replace(/%2A/g, '*')}/_search`;
-      const res = await requestOk(u, { body: { size: 0 }, basic: { username: wz.username, password: pw }, caFile: wz.caFile || undefined, timeoutMs: 10000 });
+      const res = await requestOk(u, { body: { size: 0 }, basic: { username: wz.username, password: pw }, caFile: wz.caFile ? path.resolve(dir, wz.caFile) : undefined, timeoutMs: 10000 }).catch((e) => { throw wazuhHint(e); });
       const total = res.json && res.json.hits && res.json.hits.total;
       return `${total && total.value !== undefined ? total.value : '?'} alert(s) in ${wz.index || 'wazuh-alerts-*'}`;
     });

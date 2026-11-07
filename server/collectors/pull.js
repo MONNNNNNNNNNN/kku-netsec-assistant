@@ -26,6 +26,16 @@ const LAG_MS = 120000, SEEN_MAX = 5000;
 const keepSeen = (seen, floor) => seen.filter(([, t]) => t >= floor).slice(-SEEN_MAX);
 
 // ---------------------------------------------------------------- Wazuh indexer
+/** Explain the indexer errors seen in practice (the raw text alone does not say what to do). */
+function wazuhHint(e) {
+  const m = String(e.message);
+  if (/circuit_breaking_exception/.test(m)) e.message = 'Wazuh indexer is out of heap memory (HTTP 429 circuit_breaking_exception), so it refuses every query. Raise -Xms/-Xmx in /etc/wazuh-indexer/jvm.options (half the RAM, at most 32g) and restart wazuh-indexer.';
+  else if (/HTTP 401/.test(m)) e.message = `Wazuh indexer refused the user/password (HTTP 401). ${m.slice(0, 120)}`;
+  else if (/security_exception|HTTP 403/.test(m)) e.message = 'The indexer user lacks read access to the index pattern (HTTP 403): it needs read + indices:data/read/search on wazuh-alerts-* (lab/wazuh-prepare.sh creates such a role).';
+  else if (/self.signed|unable to verify|UNABLE_TO_VERIFY|certificate/i.test(m)) e.message = `TLS: the indexer certificate is not trusted; set sources.wazuh.caFile (Wazuh's root CA, e.g. /etc/wazuh-indexer/certs/root-ca.pem). ${m.slice(0, 100)}`;
+  return e;
+}
+
 async function pullWazuh(cfg, cursor) {
   const url = `${cfg.url.replace(/\/+$/, '')}/${encodeURIComponent(cfg.index || 'wazuh-alerts-*').replace(/%2A/g, '*')}/_search`;
   const size = cfg.pageSize || 500;
@@ -42,7 +52,7 @@ async function pullWazuh(cfg, cursor) {
       sort: [{ timestamp: { order: 'asc' } }],
       query: { bool: { filter: [{ range: { timestamp: range } }], ...(ids.length ? { must_not: [{ ids: { values: ids } }] } : {}) } },
     };
-    const r = await requestOk(url, { body, basic: cfg.username ? { username: cfg.username, password: cfg.password } : null, caFile: cfg.caFile || undefined, timeoutMs: 30000 });
+    const r = await requestOk(url, { body, basic: cfg.username ? { username: cfg.username, password: cfg.password } : null, caFile: cfg.caFile || undefined, timeoutMs: 30000 }).catch((e) => { throw wazuhHint(e); });
     const hits = (r.json && r.json.hits && r.json.hits.hits) || [];
     for (const h of hits) {
       events.push(trust.wazuh(h._source || {}, h._id, cfg));
@@ -188,4 +198,4 @@ async function pullFortigateBackup(cfg, cursor) {
   return { events: out.events, cursor: { method, sha }, extra: { configs: [out.extra.config] } };
 }
 
-module.exports = { pullWazuh, pullZabbix, checkZabbix, zabbixRpc, pullConfigDrop, pullFortigateBackup, ingestConfig };
+module.exports = { wazuhHint, pullWazuh, pullZabbix, checkZabbix, zabbixRpc, pullConfigDrop, pullFortigateBackup, ingestConfig };

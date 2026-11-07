@@ -54,7 +54,23 @@ Schedules are cron expressions in Asia/Bangkok time (`*/2 * * * *`, `@every 30s`
 
 **Security:** async scrypt passwords (at most 20 checks at a time), HttpOnly SameSite=Strict sessions that also end open live streams on logout, CSRF tokens, login backoff per IP (IPv6 per /64; `X-Forwarded-For` only from listed proxies, rightmost hop), at most 2 password checks at once per address with 4 slots kept for known logins, a 15-minute lock per account + address after 10 failures (the account itself only slows down, max 30 s, and never for an address it logged in from), failed/locked logins on an admin tile, viewer/operator/admin roles, strict CSP, no HTML built from strings in the UI (log fields are attacker-controlled), secrets only as references, database `0600` with 30-day retention and an audit of who viewed, pinned or acknowledged what (PDPA: treat `data/board.db` as an ISMS asset). Back it up with `node cli/board.js backup /secure/board-$(date +%F).db` (a consistent copy while the board runs, mode 600; in Docker: `docker compose exec board node cli/board.js backup /data/backup.db`, then `docker compose cp board:/data/backup.db .`); a plain `cp` of a live WAL database can give a torn copy.
 
-**Tests:** `npm test` (109: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks copy vendor documentation and are **not yet verified against real KKU devices** (weeks 3–5).
+**Tests:** `npm test` (119: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks follow vendor documentation **and the recorded behaviour of real systems** (below).
+
+**Verified against real systems and real data** ([report](results/real-data-eval.md), reproducible with [`lab/`](lab/README.md)):
+
+| Integration | Tested against | Result |
+|---|---|---|
+| Wazuh pull | Wazuh 4.14.9 indexer, 1.37 M real alerts | board fetched exactly what the indexer holds (37,843 / 37,843); 0 duplicates after restart; live alert → card 13 s at a 15 s schedule |
+| Wazuh push | the real integration (`deploy/custom-netsec-board.py`) | 438 / 439 alerts accepted; alert → card 1.3 s |
+| Zabbix | Zabbix 7.0.32, API token + the real webhook media type | problem, recovery and recurrence in 3-6 s, both pull and push |
+| FortiGate logs | 510,899 real lines (Splunk BOTSv1, CC0, FortiOS 5.x) | 100% parsed; 28 days → 145 cards, 31 pushes; 0 false injection flags; 5,334 lines/s |
+| LLM | Ollama `qwen2.5:3b-instruct`, CPU | 23 s per card; the guard overrode the one injected card the model called benign |
+| Cloud masking | 30 real cards, 48 identifiers | 0 leaks to Telegram/LINE |
+| Install | `install.sh` against the real stack | 10 s install, first real card 3.6 s later |
+
+Not yet verified: a real FortiGate device on current FortiOS, and KKU's own Wazuh/Zabbix.
+
+![Board on real data (identifiers masked)](docs/screenshots/real-board.png)
 
 **Prior art (searched 2026-11-06):** the pieces exist separately (Wazuh-Autopilot and SOC-Automation for LLM triage of Wazuh alerts, fortigate-log-triage, fwrule-mcp, forti-elk, Zabbix + Ollama webhook guides, vendor AI in FortiAnalyzer and ManageEngine). None combines FortiGate config and logs, Wazuh, Zabbix and syslog on one board with an on-prem LLM whose output cannot lower device-field severity, Thai output and an injection evaluation. AiSOC's reported auto-closing of alerts through injection (May 2026) shows why the guard matters.
 

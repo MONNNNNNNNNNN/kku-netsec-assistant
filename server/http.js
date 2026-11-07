@@ -142,7 +142,11 @@ function createHandler(app) {
       if (!hookBucket.take(`bad:${ip}`)) throw new HttpError(429, 'rate limit');
       throw new HttpError(401, 'bad hook token');
     }
-    if (!hookBucket.take(ip)) throw new HttpError(429, 'rate limit');
+    if (!hookBucket.take(ip)) {
+      // a valid caller over the limit loses this event: count it, the hook tile shows it
+      require('./db.js').bumpSource(db, `hook:${name}`, 'dropped');
+      throw new HttpError(429, 'rate limit');
+    }
     const body = await readJson(req, 1024 * 1024);
     const list = Array.isArray(body) ? body.slice(0, 500) : [body];
     let n = 0;

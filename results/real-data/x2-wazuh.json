@@ -1,0 +1,272 @@
+{
+  "ranAt": "2026-11-07T07:19:20.296Z",
+  "lookback": "24h",
+  "setup": [
+    "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*"
+  ],
+  "setupNote": null,
+  "completeness": {
+    "from": "2026-11-07T07:10:00Z",
+    "indexerLevel4plus": 1155,
+    "indexerAll": 1183,
+    "boardFetched": 1183,
+    "boardReceived": 1155,
+    "boardFiltered": 28,
+    "runs": 1,
+    "pullMs": 860,
+    "alertsPerSec": 1376
+  },
+  "cardsByRule": {
+    "60602 Windows application error event.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 581
+      },
+      "severity": "medium"
+    },
+    "61061 Multiple Windows error application events.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 83
+      },
+      "severity": "high"
+    },
+    "92910 Explorer process was accessed by C:\\\\Users\\\\Administrator\\\\AppData\\\\Lo": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 108
+      },
+      "severity": "high"
+    },
+    "5710 sshd: Attempt to login using a non-existent user": {
+      "lab": {
+        "cards": 1,
+        "events": 195
+      },
+      "host": {
+        "cards": 16,
+        "events": 28
+      },
+      "severity": "low"
+    },
+    "5503 PAM: User login failed.": {
+      "lab": {
+        "cards": 1,
+        "events": 88
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "5762 sshd: connection reset": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 2,
+        "events": 2
+      },
+      "severity": "low"
+    },
+    "5712 sshd: brute force trying to get access to the system. Non existent use": {
+      "lab": {
+        "cards": 1,
+        "events": 5
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "5551 PAM: Multiple failed logins in a small period of time.": {
+      "lab": {
+        "cards": 1,
+        "events": 12
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "92200 Scripting file created under Windows Temp or User folder": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 2
+      },
+      "severity": "low"
+    },
+    "550 Integrity checksum changed.": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31103 SQL injection attempt.": {
+      "lab": {
+        "cards": 1,
+        "events": 9
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31105 XSS": {
+      "lab": {
+        "cards": 1,
+        "events": 9
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "31104 Common web attack.": {
+      "lab": {
+        "cards": 1,
+        "events": 9
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "31101 Web server 400 error code.": {
+      "lab": {
+        "cards": 1,
+        "events": 19
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31151 Multiple web server 400 error codes from same source ip.": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31152 Multiple SQL injection attempts from same source ip.": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31154 Multiple XSS": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31153 Multiple common web attacks from same source ip.": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    }
+  },
+  "cards": 35,
+  "pushesAfterQuietFirstRun": 8,
+  "lab": {
+    "cards": 13,
+    "events": 351,
+    "sshCards": [
+      {
+        "title": "sshd: Attempt to login using a non-existent user",
+        "count": 195,
+        "samples": 5
+      },
+      {
+        "title": "sshd: brute force trying to get access to the system. Non existent user.",
+        "count": 5,
+        "samples": 5
+      }
+    ],
+    "flaggedCards": [
+      {
+        "title": "Web server 400 error code.",
+        "flags": [
+          "full_log: instruction override, verdict steering",
+          "full_log: verdict steering"
+        ]
+      },
+      {
+        "title": "Multiple web server 400 error codes from same source ip.",
+        "flags": [
+          "previous_output: instruction override, verdict steering",
+          "full_log: verdict steering"
+        ]
+      }
+    ]
+  },
+  "hostTraffic": {
+    "cards": 22,
+    "events": 804,
+    "distinctSources": 18
+  },
+  "restart": {
+    "eventsBefore": 1155,
+    "eventsAfter": 1155,
+    "newSinceRestart": 0
+  },
+  "liveLatency": {
+    "schedule": "15s",
+    "labCards": 9,
+    "alertToCardMs": {
+      "min": 8653,
+      "median": 13033,
+      "max": 18726
+    }
+  }
+}

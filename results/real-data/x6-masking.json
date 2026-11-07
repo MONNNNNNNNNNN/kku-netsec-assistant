@@ -1,0 +1,18 @@
+{
+  "ranAt": "2026-11-07T07:27:24.475Z",
+  "hours": 3,
+  "cards": 30,
+  "identifiersInCards": 48,
+  "messages": {
+    "telegram": 30,
+    "lineDigest": 1
+  },
+  "leaks": 0,
+  "leakShapes": [],
+  "sample": [
+    "NetSec MEDIUM\n[MEDIUM] wazuh: Windows application error event. (HOSTNAME_2) (x4055)",
+    "NetSec HIGH\n[HIGH] wazuh: Multiple Windows error application events. (HOSTNAME_2) (x580)",
+    "NetSec LOW\n[LOW] wazuh: sshd: Attempt to login using a non-existent user (HOSTNAME_1) (x9)"
+  ],
+  "pass": true
+}

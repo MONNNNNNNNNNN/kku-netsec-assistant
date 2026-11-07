@@ -46,8 +46,10 @@ function maskForCloud(text, items) {
   const list = (Array.isArray(items) ? items : [items]).filter(Boolean);
   const values = (k) => list.flatMap((it) => [it.trusted && it.trusted[k], it.untrusted && it.untrusted[k]]);
   const pick = (keys) => [...new Set(keys.flatMap((k) => values(k).flatMap((v) => String(v ?? '').split(/,\s*/))).filter((v) => v.length >= 2 && v !== 'N/A'))];
+  // whole tokens only: a short user name ("old") must not mangle words ("folder" -> "fUSER_1er")
+  const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const swap = (vals, kind) => {
-    vals.sort((a, b) => b.length - a.length).forEach((v, i) => { t = t.split(v).join(`${kind}_${i + 1}`); });
+    vals.sort((a, b) => b.length - a.length).forEach((v, i) => { t = t.replace(new RegExp(`(?<![A-Za-z0-9])${esc(v)}(?![A-Za-z0-9])`, 'g'), `${kind}_${i + 1}`); });
   };
   swap(pick(N.USER_FIELDS), 'USER');
   swap(pick(HOST_FIELDS), 'HOSTNAME');

@@ -30,6 +30,9 @@ const CA = '/etc/netsec-board/wazuh-root-ca.pem';
 const URL_ = process.env.WAZUH_URL || 'https://127.0.0.1:9200';
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const LOOKBACK = arg('lookback', '24h');
+// --from 2026-10-15T00:00:00+07:00: start the board's cursor there (real history) instead of the
+// initial lookback; the board then pulls forward with its normal code (paging, lag window)
+const FROM = arg('from', null);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function indexer(body, what = '_search') {
@@ -61,17 +64,19 @@ async function indexer(body, what = '_search') {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nsb-x2-'));
   const cfgOver = { dataDir, lang: 'en', listen: { host: '127.0.0.1', port: 0 }, sources: { wazuh: { enabled: true, schedule: '@every 1h', url: URL_, username: 'netsec_board_ro', password, caFile: CA, minSeverity: 'low', initialLookback: LOOKBACK } }, notify: { channels: [{ name: 'ntfy', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'high' }] } };
   let app = await createApp(loadConfig(null, cfgOver, {}), { log: () => {}, runOnStart: false });
+  if (FROM) app.db.prepare("INSERT INTO source_state(source, cursor) VALUES('wazuh', ?) ON CONFLICT(source) DO UPDATE SET cursor = excluded.cursor").run(JSON.stringify({ maxTs: Date.parse(FROM), seen: [] }));
   const t0 = Date.now();
   let runs = 0;
   for (;;) { const r = await app.scheduler.run('wazuh'); runs++; if (!r.ok) throw new Error(`pull failed: ${r.error}`); if (r.n < 5000 || runs > 50) break; }
   const st = () => app.db.prepare("SELECT received, filtered FROM source_state WHERE source = 'wazuh'").get();
-  const windowStart = t0 - (/(\d+)h/.test(LOOKBACK) ? Number(LOOKBACK.match(/(\d+)h/)[1]) * 3600000 : 3600000);
+  // the board's first query starts lagWindow (120 s) before the cursor
+  const windowStart = FROM ? Date.parse(FROM) - 120000 : t0 - (/(\d+)h/.test(LOOKBACK) ? Number(LOOKBACK.match(/(\d+)h/)[1]) * 3600000 : 3600000);
   const idx = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }] } } }, '_count');
   const idxAll = await indexer({ query: { range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } } }, '_count');
-  out.completeness = { indexerLevel4plus: idx.count, indexerAll: idxAll.count, boardReceived: st().received, boardFiltered: st().filtered, runs, firstPullMs: Date.now() - t0 };
+  out.completeness = { from: FROM, indexerLevel4plus: idx.count, indexerAll: idxAll.count, boardFetched: st().received + st().filtered, boardReceived: st().received, boardFiltered: st().filtered, runs, pullMs: Date.now() - t0, alertsPerSec: Math.round((st().received + st().filtered) / ((Date.now() - t0) / 1000)) };
 
   // 4. cards per rule / agent, without identities
-  const items = app.db.prepare("SELECT title, count, severity, flags, samples, trusted FROM items WHERE source = 'wazuh'").all();
+  const items = app.db.prepare("SELECT title, count, severity, flags, samples, trusted, untrusted FROM items WHERE source = 'wazuh'").all();
   const byRule = {};
   for (const it of items) {
     const tr = JSON.parse(it.trusted);
@@ -90,7 +95,7 @@ async function indexer(body, what = '_search') {
     flaggedCards: lab.filter((i) => JSON.parse(i.flags).length).map((i) => ({ title: i.title.replace(/ \(.*\)$/, ''), flags: JSON.parse(i.flags) })),
   };
   const host = items.filter((it) => JSON.parse(it.trusted)['agent.name'] !== 'lab-victim');
-  const srcs = new Set(host.map((i) => JSON.parse(i.trusted)['data.srcip'] || JSON.parse(i.untrusted || '{}')['data.srcip']).filter(Boolean));
+  const srcs = new Set(host.map((i) => JSON.parse(i.untrusted || '{}')['data.srcip'] || JSON.parse(i.trusted)['data.srcip']).filter(Boolean));
   out.hostTraffic = { cards: host.length, events: host.reduce((n, i) => n + i.count, 0), distinctSources: srcs.size };
 
   // 5. restart: same database, pull again -> nothing counted twice
@@ -101,6 +106,26 @@ async function indexer(body, what = '_search') {
   const after = app.db.prepare("SELECT SUM(count) AS n FROM items WHERE source = 'wazuh'").get().n;
   out.restart = { eventsBefore: before, eventsAfter: after, newSinceRestart: after - before };
   await app.close(); sinks.server.close();
+
+  // 6. --live N: pull latency with the board's real scheduler (every 15 s) while a short lab attack
+  // runs; alert timestamp -> card visible, includes Filebeat's shipping delay
+  const LIVE = Number(arg('live', 0));
+  if (LIVE) {
+    const liveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nsb-x2l-'));
+    const startCursor = Date.now() - 5000;
+    const live = await createApp(loadConfig(null, { ...cfgOver, dataDir: liveDir, sources: { wazuh: { ...cfgOver.sources.wazuh, schedule: '@every 15s' } } }, {}), { log: () => {}, runOnStart: false, jitter: false });
+    live.db.prepare("INSERT INTO source_state(source, cursor) VALUES('wazuh', ?) ON CONFLICT(source) DO UPDATE SET cursor = excluded.cursor").run(JSON.stringify({ maxTs: startCursor, seen: [] }));
+    live.scheduler.start({ runOnStart: true });
+    const seenAt = new Map();
+    const poll = setInterval(() => { for (const r of live.db.prepare("SELECT id, first_seen, trusted FROM items WHERE source = 'wazuh'").all()) if (!seenAt.has(r.id) && JSON.parse(r.trusted)['agent.name'] === 'lab-victim') seenAt.set(r.id, Date.now() - r.first_seen); }, 250);
+    const { spawn } = require('node:child_process');
+    await new Promise((resolve) => { const p = spawn('sh', [path.join(__dirname, 'attack.sh'), '20', '10'], { stdio: 'ignore' }); p.on('close', resolve); });
+    await sleep(LIVE * 1000);
+    clearInterval(poll);
+    const lat = [...seenAt.values()].sort((a, b) => a - b);
+    out.liveLatency = { schedule: '15s', labCards: lat.length, alertToCardMs: lat.length ? { min: lat[0], median: lat[Math.floor(lat.length / 2)], max: lat[lat.length - 1] } : null };
+    await live.close();
+  }
 
   fs.mkdirSync(path.join(ROOT, 'results/real-data'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'results/real-data/x2-wazuh.json'), `${JSON.stringify(out, null, 2)}\n`);

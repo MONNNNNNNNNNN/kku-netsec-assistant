@@ -1,0 +1,171 @@
+{
+  "ranAt": "2026-11-07T07:17:17.501Z",
+  "attackExit": 0,
+  "hookReceived": {
+    "received": 438,
+    "dropped": 0
+  },
+  "window": {
+    "from": "2026-11-07T07:11:38.166Z",
+    "to": "2026-11-07T07:17:17.501Z"
+  },
+  "cards": 11,
+  "labCards": 8,
+  "hostCards": 3,
+  "alertToCardMs": {
+    "min": 454,
+    "median": 1308,
+    "max": 1605
+  },
+  "allCards": [
+    {
+      "agent": "other",
+      "rule": "60602",
+      "level": "9",
+      "count": 293
+    },
+    {
+      "agent": "other",
+      "rule": "61061",
+      "level": "10",
+      "count": 42
+    },
+    {
+      "agent": "other",
+      "rule": "92910",
+      "level": "12",
+      "count": 72
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "5712",
+      "level": "10",
+      "count": 5
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "5551",
+      "level": "10",
+      "count": 12
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "550",
+      "level": "7",
+      "count": 1
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "31103",
+      "level": "7",
+      "count": 9
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "31151",
+      "level": "10",
+      "count": 1
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "31152",
+      "level": "10",
+      "count": 1
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "31154",
+      "level": "10",
+      "count": 1
+    },
+    {
+      "agent": "lab-victim",
+      "rule": "31153",
+      "level": "10",
+      "count": 1
+    }
+  ],
+  "labByRule": [
+    {
+      "rule": "5712",
+      "level": "10",
+      "title": "sshd: brute force trying to get access to the system. Non existent user.",
+      "count": 5,
+      "severity": "high",
+      "samples": 5,
+      "flags": []
+    },
+    {
+      "rule": "5551",
+      "level": "10",
+      "title": "PAM: Multiple failed logins in a small period of time.",
+      "count": 12,
+      "severity": "high",
+      "samples": 5,
+      "flags": []
+    },
+    {
+      "rule": "550",
+      "level": "7",
+      "title": "Integrity checksum changed.",
+      "count": 1,
+      "severity": "medium",
+      "samples": 1,
+      "flags": []
+    },
+    {
+      "rule": "31103",
+      "level": "7",
+      "title": "SQL injection attempt.",
+      "count": 9,
+      "severity": "medium",
+      "samples": 1,
+      "flags": []
+    },
+    {
+      "rule": "31151",
+      "level": "10",
+      "title": "Multiple web server 400 error codes from same source ip.",
+      "count": 1,
+      "severity": "high",
+      "samples": 1,
+      "flags": [
+        "previous_output: instruction override, verdict steering",
+        "full_log: verdict steering"
+      ]
+    },
+    {
+      "rule": "31152",
+      "level": "10",
+      "title": "Multiple SQL injection attempts from same source ip.",
+      "count": 1,
+      "severity": "high",
+      "samples": 1,
+      "flags": []
+    },
+    {
+      "rule": "31154",
+      "level": "10",
+      "title": "Multiple XSS",
+      "count": 1,
+      "severity": "high",
+      "samples": 1,
+      "flags": []
+    },
+    {
+      "rule": "31153",
+      "level": "10",
+      "title": "Multiple common web attacks from same source ip.",
+      "count": 1,
+      "severity": "high",
+      "samples": 1,
+      "flags": []
+    }
+  ],
+  "pushCompleteness": {
+    "indexerLevel7plus": 439,
+    "indexerLabLevel7plus": 31,
+    "hookAccepted": 438,
+    "hookRateLimited": 0
+  }
+}
