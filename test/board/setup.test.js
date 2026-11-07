@@ -178,3 +178,14 @@ test('R6: setup asks for the indexer CA: a self-signed https Wazuh fails without
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'b', 'netsec.json'), 'utf8')).sources.wazuh.caFile, path.join(dir, 'ca.pem'));
   } finally { server.close(); }
 });
+
+test('M1: the wizard tests Zabbix with a CA path relative to netsec.json (as the board resolves it), not to its working directory', async () => {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'certs'));
+  fs.copyFileSync('/etc/ssl/certs/ca-certificates.crt', path.join(dir, 'certs', 'z.pem'));
+  const r = await run(['setup', '--config', path.join(dir, 'netsec.json'), '--non-interactive'], { NETSEC_SETUP_LANG: 'en', NETSEC_SETUP_ZABBIX_URL: 'https://127.0.0.1:9/', NETSEC_SETUP_ZABBIX_TOKEN: 'zbx-tok-123', NETSEC_SETUP_ZABBIX_CA: 'certs/z.pem' });
+  assert.doesNotMatch(r.stdout, /CA file not found/);
+  assert.match(r.stdout, /FAIL {2}Zabbix API/, 'the live test ran (nothing listens there)');
+  assert.doesNotMatch(r.stdout, /ENOENT|no such file/, 'it found the CA file');
+});
+

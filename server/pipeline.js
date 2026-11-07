@@ -6,7 +6,8 @@
  */
 const { EventEmitter } = require('node:events');
 const { tx, bumpSource, updateSource } = require('./db.js');
-const { SEV, sevRank } = require('./config.js');
+const { SEV, sevRank, DEFAULTS } = require('./config.js');
+const DEFAULT_IDLE_HOURS = DEFAULTS.board.autoResolveAfterHours;
 const { maxSev } = require('./trust.js');
 
 const CLASS_SEV = { malicious: 'high', suspicious: 'medium', unknown: 'info', benign: 'info' };
@@ -36,16 +37,29 @@ function addSample(samples, e, now) {
   return [...samples.slice(0, i), ...samples.slice(i + 1), s];
 }
 
+/**
+ * K7c: the severity channels may act on. The board shows `severity` (every raise); a page counts
+ * only what the device said (det: incl. operator overrides and the injection floor) plus the AI
+ * verdict when the device itself said medium or more. Correlation raises never count. Stored
+ * raises would otherwise page later, on a re-arm or re-open.
+ */
+function pageSeverityOf(det, dev, llm) {
+  return sevRank(dev) >= sevRank('medium') ? finalSeverity(det, llm && llm.classification ? llm : null) : det;
+}
+
 function toItem(r) {
   if (!r) return null;
   const now = Date.now();
+  const llm = r.llm ? JSON.parse(r.llm) : null;
+  const dev = r.dev_severity || r.det_severity;
   return {
-    id: r.id, fingerprint: r.fingerprint, source: r.source, kind: r.kind, severity: r.severity, detSeverity: r.det_severity, devSeverity: r.dev_severity || r.det_severity,
+    id: r.id, fingerprint: r.fingerprint, source: r.source, kind: r.kind, severity: r.severity, detSeverity: r.det_severity, devSeverity: dev,
+    pageSeverity: pageSeverityOf(r.det_severity, dev, llm),
     title: r.title, trusted: JSON.parse(r.trusted), untrusted: JSON.parse(r.untrusted), flags: JSON.parse(r.flags), samples: JSON.parse(r.samples || '[]'),
     count: r.count, firstSeen: r.first_seen, lastSeen: r.last_seen,
     pinnedBy: r.pinned_by, pinnedAt: r.pinned_at, ackedBy: r.acked_by, ackedAt: r.acked_at,
     snoozedUntil: r.snoozed_until && r.snoozed_until > now ? r.snoozed_until : null, snoozedBy: r.snoozed_until > now ? r.snoozed_by : null,
-    resolvedAt: r.resolved_at, reopenedAt: r.reopened_at || null, escalatedAt: r.escalated_at || null, link: r.link, llm: r.llm ? JSON.parse(r.llm) : null, llmState: r.llm_state,
+    resolvedAt: r.resolved_at, reopenedAt: r.reopened_at || null, escalatedAt: r.escalated_at || null, link: r.link, llm, llmState: r.llm_state,
   };
 }
 
@@ -103,7 +117,7 @@ class Pipeline extends EventEmitter {
    * re-opens the card and notifies (the S1 path).
    */
   resolveIdle(now = this.now()) {
-    const hours = { info: 24, low: 24, medium: 72, ...((this.cfg.board && this.cfg.board.autoResolveAfterHours) || {}) };
+    const hours = (this.cfg.board && this.cfg.board.autoResolveAfterHours) || DEFAULT_IDLE_HOURS;
     const out = [];
     for (const [sev, h] of Object.entries(hours)) {
       if (!SEV.includes(sev) || !(Number(h) > 0) || sevRank(sev) >= sevRank('high')) continue;
@@ -318,4 +332,4 @@ function compileOverrides(list) {
   return { rules, errors };
 }
 
-module.exports = { Pipeline, toItem, finalSeverity, CLASS_SEV, addSample, compileOverrides };
+module.exports = { Pipeline, toItem, finalSeverity, pageSeverityOf, CLASS_SEV, addSample, compileOverrides };

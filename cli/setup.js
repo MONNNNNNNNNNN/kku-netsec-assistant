@@ -195,7 +195,7 @@ async function setup(opts) {
     const tok = await ask('ZABBIX_TOKEN', 'Zabbix API token', { def: secrets.NETSEC_ZABBIX_TOKEN || '', secret: true });
     secrets.NETSEC_ZABBIX_TOKEN = tok; zb.token = 'env:NETSEC_ZABBIX_TOKEN';
     const r = await tested('Zabbix API', async () => {
-      const c = await checkZabbix({ url: zb.url, token: tok, caFile: zb.caFile || undefined });
+      const c = await checkZabbix({ url: zb.url, token: tok, caFile: zb.caFile ? path.resolve(dir, zb.caFile) : undefined });
       if (!c.ok) throw Object.assign(new Error(c.error), { hint: c.hint });
       return `Zabbix ${c.version}`;
     });

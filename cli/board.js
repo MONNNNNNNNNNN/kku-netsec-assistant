@@ -161,6 +161,13 @@ async function check({ cfg, raw, secretsWarning }) {
   const ov = require('../server/pipeline.js').compileOverrides(raw.severityOverrides);
   for (const e of ov.errors) err(e);
   if (ov.rules.length) ok(`${ov.rules.length} severity override(s), matched on trusted fields only`);
+  const idle = (raw.board && raw.board.autoResolveAfterHours) || {};
+  for (const [k, v] of Object.entries(idle)) {
+    const at = `board.autoResolveAfterHours.${k}`;
+    if (k === 'high' || k === 'critical') err(`${at}: high and critical never auto-close (a person closes them)`);
+    else if (!['info', 'low', 'medium'].includes(k)) err(`${at}: not a severity (info, low, medium)`);
+    else if (typeof v !== 'number' || !(v >= 0)) err(`${at}: must be a number of hours (0 = never), not ${JSON.stringify(v)}`);
+  }
   if (!db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n) {
     if (process.env.NETSEC_ADMIN_HASH) ok(`admin "${process.env.NETSEC_ADMIN_USER || 'admin'}" is created on the board's first start (secrets.env)`);
     else err('no admin user: run "setup" or "init"');

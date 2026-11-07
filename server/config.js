@@ -20,7 +20,7 @@ const DEFAULTS = {
   tzOffsetMinutes: 420, // Asia/Bangkok, no DST
   cookieSecure: false,
   sessionHours: 12,
-  board: { notifyMinSeverity: 'high', newCardsPerMinute: 120 },
+  board: { notifyMinSeverity: 'high', newCardsPerMinute: 120, autoResolveAfterHours: { info: 24, low: 24, medium: 72 } },
   sources: {
     syslog: { enabled: false, bind: '127.0.0.1', port: 5514, udp: true, tcp: true, allow: [], ratePerSec: 2000, minSeverity: 'low' },
     wazuh: { enabled: false, schedule: '*/2 * * * *', url: '', index: 'wazuh-alerts-*', username: '', password: '', caFile: '', minSeverity: 'low', pageSize: 500 },

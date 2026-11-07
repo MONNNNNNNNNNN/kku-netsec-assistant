@@ -70,6 +70,7 @@ function inQuiet(q, ts, tz) {
 
 const itemId = (item) => (item && !Array.isArray(item) && item.id != null ? item.id : null);
 
+const pageSev = (item) => item.pageSeverity || item.severity;
 function itemLine(item) {
   return `[${String(item.severity).toUpperCase()}] ${item.source}: ${item.title}${item.count > 1 ? ` (x${item.count})` : ''}`;
 }
@@ -184,17 +185,19 @@ class Notifier extends EventEmitter {
   }
 
   route(ch, item) {
-    if (sevRank(item.severity) < sevRank(ch.minSeverity)) return null;
+    // K7c: channels act on the page severity (no AI raise on a device-low card, no correlation raise)
+    const sev = pageSev(item);
+    if (sevRank(sev) < sevRank(ch.minSeverity)) return null;
     if (ch.sources.length && !ch.sources.includes(item.source)) return null;
     const prev = this.lastSent(ch, item.id, item.reopenedAt);
-    if (prev && sevRank(item.severity) <= sevRank(prev)) return null; // re-notify on escalation only
+    if (prev && sevRank(sev) <= sevRank(prev)) return null; // re-notify on escalation only
     const now = this.now();
-    const exceptOk = ch.quietHours && ch.quietHours.except && sevRank(item.severity) >= sevRank(ch.quietHours.except);
+    const exceptOk = ch.quietHours && ch.quietHours.except && sevRank(sev) >= sevRank(ch.quietHours.except);
     const queue = () => { this.qIns.run(ch.name, item.id, now); return null; };
     if (inQuiet(ch.quietHours, now, this.tz) && !exceptOk) return queue();
     if (ch.mode === 'digest') return queue();
     if (this.sentSince(ch, now - ch.rateLimit.perMinutes * 60000, false) + (this.inflight.get(ch.name) || 0) >= ch.rateLimit.max) return queue();
-    return this.send(ch, { title: `NetSec ${item.severity.toUpperCase()}`, text: itemLine(item), severity: item.severity, link: this.boardLink(item), items: [item.id] }, item, false);
+    return this.send(ch, { title: `NetSec ${sev.toUpperCase()}`, text: itemLine(item), severity: sev, link: this.boardLink(item), items: [item.id] }, item, false);
   }
 
   async send(ch, msg, item, digest) {
@@ -240,10 +243,10 @@ class Notifier extends EventEmitter {
       items.push(toItem(r));
     }
     this.db.prepare('DELETE FROM notify_pending WHERE channel = ? AND item_id NOT IN (SELECT id FROM items)').run(ch.name);
-    items.sort((a, b) => sevRank(b.severity) - sevRank(a.severity));
+    items.sort((a, b) => sevRank(pageSev(b)) - sevRank(pageSev(a)));
     if (!items.length) return false;
     const capped = getMeta(this.db, `notify_capped:${ch.name}`) || 0;
-    const top = items[0].severity;
+    const top = pageSev(items[0]);
     const lines = items.slice(0, 10).map(itemLine);
     if (items.length > 10) lines.push(`+${items.length - 10} more`);
     if (capped) lines.push(`(${capped} message(s) held back by the daily cap)`);

@@ -142,6 +142,8 @@ async function createApp(loaded, opts = {}) {
     if (c.reopened || c.escalated) touched.set(c.id, Date.now());
     app.queueItem(c);
     if (c.quiet) { app.notifier.boardNote(c); return; } // first-run baseline: board only
+    // K6/K7: defence in depth. The notifier routes on item.pageSeverity (K7c), which leaves out
+    // correlation raises and AI raises on device-low cards, now and on any later re-open or re-arm.
     // K6 correlation raises never page by themselves (one side may come from log text)
     if (c.correlated) { if (c.escalated) app.notifier.boardNote({ ...c, isNew: false }); return; }
     if (!c.llm) { app.notifier.consider(c); app.llmq.consider(c); }
