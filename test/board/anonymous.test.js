@@ -297,3 +297,19 @@ test('syslog: unlisted senders (UDP and TCP), oversize lines, CEF/CSV and an end
     assert.ok(await alive(app));
   } finally { await app.close(); }
 });
+
+test('the board serves the TH/EN manual itself: public, offline (no external resources), its own narrow CSP', async () => {
+  const { app } = await anonBoard();
+  try {
+    const r = await fetch(`${app.url}/manual.html?lang=en`);
+    assert.equal(r.status, 200);
+    const html = await r.text();
+    assert.match(html, /NetSec Board manual/);
+    assert.match(html, /คู่มือการใช้งาน NetSec Board/, 'Thai text is there too');
+    assert.ok(!/fonts\.(googleapis|gstatic)/.test(html), 'no external fonts');
+    const csp = r.headers.get('content-security-policy');
+    assert.match(csp, /default-src 'none'/);
+    assert.ok(!/https?:/.test(csp), 'the manual may load nothing from the network');
+    assert.ok(!html.includes(SECRET_TITLE), 'no board data in the manual');
+  } finally { await app.close(); }
+});

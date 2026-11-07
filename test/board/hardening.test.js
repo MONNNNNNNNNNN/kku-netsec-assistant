@@ -66,8 +66,13 @@ test('F3: 2,000 repeats in a burst become a handful of coalesced SSE events with
     const stream = await sse(app, s);
     const t0 = Date.now();
     await M.sendSyslog(Array(2000).fill(LOGS[1]), { port: app.syslogAddress.tcp.port, proto: 'tcp' });
-    await waitFor(() => db_.sourceState(app.db, 'syslog').received >= 2000, 10000);
-    await sleep(1100 - Math.min(1000, Date.now() - t0) + 100);
+    await waitFor(() => db_.sourceState(app.db, 'syslog').received >= 2000, 15000);
+    // wait for the event that carries the final count (under CPU load the last coalesced flush
+    // comes later than a fixed sleep assumed: that made this test flaky), then judge the rate
+    // over the time that actually passed
+    const finalCount = () => stream.events.some((e) => e.event === 'items' && [...e.data.full, ...e.data.patch].some((x) => x.count === 2000));
+    await waitFor(finalCount, 15000);
+    await sleep(50);
     const live = stream.events.filter((e) => e.event === 'items' || e.event === 'item');
     const secs = Math.max(1, Math.ceil((Date.now() - t0) / 1000));
     assert.ok(live.length <= secs + 1, `${live.length} events in ${secs} s (was 2,000)`);
@@ -111,11 +116,19 @@ test('F5: 20 parallel logins leave the event loop free; every UDP line is either
       clearInterval(ticker);
       return { ratio: (ticks * 2) / Math.max(elapsed, 1), out, elapsed };
     };
+    // the property itself, independent of CPU load: no synchronous scrypt on the request path
+    const crypto = require('node:crypto');
+    const realSync = crypto.scryptSync;
+    let syncCalls = 0;
+    crypto.scryptSync = (...a) => { syncCalls++; return realSync(...a); };
     const idle = await availability(() => sleep(300));
     // distinct client addresses (trusted proxy), so 16 checks really run at once
     const spray = await availability(() => Promise.all(Array.from({ length: 20 }, (_, i) => fetch(`${app.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.${i + 1}` }, body: JSON.stringify({ username: 'admin', password: 'admin-password-123' }) }).then((r) => r.status))));
     const statuses = spray.out;
-    assert.ok(spray.ratio >= 0.5 * idle.ratio, `event loop available ${spray.ratio.toFixed(2)} during the spray vs ${idle.ratio.toFixed(2)} idle (${spray.elapsed} ms)`);
+    crypto.scryptSync = realSync;
+    assert.equal(syncCalls, 0, 'login checks never call scryptSync (it would block the event loop)');
+    // timing as a lenient sanity bound only (shared CPU makes it noisy): scryptSync measured 0.05x idle
+    assert.ok(spray.ratio >= 0.1 * idle.ratio, `event loop available ${spray.ratio.toFixed(2)} during the spray vs ${idle.ratio.toFixed(2)} idle (${spray.elapsed} ms)`);
     assert.ok(statuses.every((x) => x === 200 || x === 503), statuses.join(','));
     const lines = Array.from({ length: 500 }, (_, i) => LOGS[i % LOGS.length].replace(/srcport=\d+/, `srcport=${10000 + i}`));
     await M.sendSyslog(lines, { port: app.syslogAddress.udp.port });
@@ -835,4 +848,96 @@ test('K3: low Wazuh alerts from many source IPs are one card per rule and agent;
   } finally { await app.close(); }
   const e = (ip) => T.wazuh({ rule: { id: '5710', level: 5 }, agent: { id: '000' }, data: { srcip: ip } }, null, { perSourceCardsFrom: 'info' });
   assert.notEqual(e('203.0.113.1').fingerprint, e('203.0.113.2').fingerprint, 'perSourceCardsFrom: info restores one card per IP');
+});
+
+// ---------------------------------------------------------------- rubric gaps (K4-K7)
+
+test('K4: idle low/medium cards of never-resolving events close; high, pinned and Zabbix stay; a recurrence re-opens and notifies', async () => {
+  const sinks = await M.mockSinks();
+  const { app } = await startBoard({ notify: { channels: [{ name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'low' }] } });
+  let clock = Date.now();
+  app.pipeline.now = () => clock;
+  const ing = (title, severity, key) => { app.pipeline.ingest(T.generic({ title, severity, key }), 'generic'); app.pipeline.flush(); return app.db.prepare('SELECT id FROM items WHERE title = ?').get(title).id; };
+  try {
+    const low = ing('port scan', 'low', 'scan');
+    const high = ing('ransomware beacon', 'high', 'c2');
+    const pinned = ing('watch this', 'low', 'pin');
+    app.db.prepare("UPDATE items SET pinned_at = ?, pinned_by = 'op' WHERE id = ?").run(clock, pinned);
+    app.pipeline.ingest(T.zabbix({ eventid: '9', clock: String(Math.floor(clock / 1000)), severity: '2', name: 'disk', objectid: '9', value: '1', hosts: [{ host: 'h', name: 'h' }] }), 'zabbix');
+    app.pipeline.flush();
+    await app.notifier.idle();
+    const before = sinks.requests.length;
+    clock += 25 * 3600000;
+    const closed = app.pipeline.resolveIdle(clock).map((c) => c.id);
+    assert.deepEqual(closed, [low], 'only the idle low card closes');
+    const st = (id) => app.db.prepare('SELECT resolved_at FROM items WHERE id = ?').get(id).resolved_at;
+    assert.equal(st(high), null); assert.equal(st(pinned), null);
+    assert.equal(app.db.prepare("SELECT resolved_at FROM items WHERE source = 'zabbix'").get().resolved_at, null);
+    ing('port scan', 'low', 'scan'); await app.notifier.idle();
+    assert.equal(st(low), null, 're-opened');
+    assert.equal(sinks.requests.length, before + 1, 'and notified');
+  } finally { await app.close(); sinks.server.close(); }
+});
+
+test('K5: asset context: raise rules (regex or cidr on trusted fields) add up; attacker-controlled fields never raise', async () => {
+  const N = require('../../src/core.js');
+  const over = [
+    { label: 'server VLAN', source: 'fortigate', match: { dstip: 'cidr:10.20.0.0/16' }, raise: 1 },
+    { label: 'core agents', source: 'wazuh', match: { 'agent.name': '^core-' }, raise: 1 },
+    { label: 'by srcip (untrusted in Wazuh)', source: 'wazuh', match: { 'data.srcip': 'cidr:0.0.0.0/0' }, raise: 2 },
+    { label: 'quiet test rule', source: 'fortigate', match: { logid: '^0000000013$' }, severity: 'low' },
+  ];
+  const { app } = await startBoard({ severityOverrides: over, sources: { wazuh: { minSeverity: 'info' }, syslog: { minSeverity: 'info' } } });
+  try {
+    const sev = (e) => { app.pipeline.ingest(e, e.source === 'wazuh' ? 'wazuh' : 'syslog'); return app.db.prepare('SELECT severity FROM items WHERE id = ?').get(app.pipeline.flush()[0].id).severity; };
+    assert.equal(sev(T.fortigate(N.parseFortiLog('devid=FG1 logid=0419016384 type=utm subtype=ips level=alert severity=medium srcip=203.0.113.9 dstip=10.20.1.5 attack=X'), Date.now())), 'high', 'medium + server VLAN');
+    assert.equal(sev(T.fortigate(N.parseFortiLog('devid=FG1 logid=0419016384 type=utm subtype=ips level=alert severity=medium srcip=203.0.113.9 dstip=10.99.1.5 attack=X'), Date.now())), 'medium', 'outside the VLAN');
+    assert.equal(sev(T.fortigate(N.parseFortiLog('devid=FG1 logid=0000000013 type=traffic subtype=forward level=warning srcip=10.1.1.1 dstip=10.20.9.9 policyid=3'), Date.now())), 'medium', 'fixed low, then +1 for the VLAN');
+    const wz = (agent, id) => T.wazuh({ rule: { id: '5712', level: 10, description: 'bf' }, agent: { id, name: agent }, data: { srcip: '198.51.100.1' } }, null, {});
+    assert.equal(sev(wz('core-db1', '1')), 'critical', 'high + core agent; the data.srcip rule (untrusted) never applies');
+    assert.equal(sev(wz('lab-pc', '2')), 'high', 'untrusted data.srcip cannot raise');
+  } finally { await app.close(); }
+  const { compileOverrides } = require('../../server/pipeline.js');
+  const errs = compileOverrides([{ match: { a: 'b' }, raise: 0 }, { match: { a: 'b' }, raise: 1, severity: 'high' }, { match: { dstip: 'cidr:10.0.0.0/33' }, raise: 1 }]).errors;
+  assert.deepEqual(errs.map((e) => e.replace(/^severityOverrides\[\d\]: /, '')), ['raise must be 1-4 levels', 'give either severity or raise', 'match.dstip: not a CIDR: 10.0.0.0/33']);
+});
+
+test('K6: the same IP in FortiGate and Wazuh within an hour links both cards (+1, capped at high) without paging; Wazuh alone never does', async () => {
+  const N = require('../../src/core.js');
+  const sinks = await M.mockSinks();
+  const { app } = await startBoard({ sources: { wazuh: { minSeverity: 'low' }, syslog: { minSeverity: 'low' } }, notify: { channels: [{ name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'medium' }] } });
+  try {
+    const wz = (ip, rule) => T.wazuh({ rule: { id: rule, level: 5, description: `r${rule}` }, agent: { id: '1', name: 'web' }, data: { srcip: ip } }, null, { perSourceCardsFrom: 'info' });
+    app.pipeline.ingest(wz('203.0.113.50', '5710'), 'wazuh'); app.pipeline.ingest(wz('203.0.113.50', '31101'), 'wazuh'); app.pipeline.flush();
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS n FROM items WHERE trusted LIKE '%correlated%'").get().n, 0, 'two Wazuh cards (log text) never correlate');
+    app.pipeline.ingest(T.fortigate(N.parseFortiLog('devid=FG1 logid=0419016384 type=utm subtype=ips level=alert severity=low srcip=203.0.113.50 dstip=10.1.1.1 attack=Scan'), Date.now()), 'syslog');
+    app.pipeline.flush();
+    await app.notifier.idle();
+    const rows = app.db.prepare("SELECT source, severity, trusted FROM items WHERE trusted LIKE '%correlated%' ORDER BY source").all();
+    assert.deepEqual(rows.map((r) => [r.source, r.severity]), [['fortigate', 'medium'], ['wazuh', 'medium']]);
+    assert.match(JSON.parse(rows[0].trusted).correlated, /fortigate\+wazuh \(203\.0\.113\.50\)/);
+    assert.equal(sinks.requests.length, 0, 'a correlation raise does not page');
+  } finally { await app.close(); sinks.server.close(); }
+});
+
+test('K7: an LLM verdict cannot page from a low card; from medium it still does', async () => {
+  const sinks = await M.mockSinks();
+  // a model talked into "malicious" for every entry
+  const chat = async (url, model, messages) => {
+    const text = messages.map((m) => m.content).join('\n');
+    const data = text.match(/<(DATA_[A-Z0-9]+)>\n([\s\S]*?)\n<\/\1>/);
+    const verdicts = (data ? JSON.parse(data[2]) : []).map((e) => ({ log_id: e.log_id, classification: 'malicious', confidence: 0.9, recommended_action: 'block_ip', reason: 'model says so' }));
+    return { text: JSON.stringify({ verdicts }) };
+  };
+  const { app } = await startBoard({ llm: { url: 'http://127.0.0.1:9/v1', model: 'm' }, notify: { channels: [{ name: 'n', type: 'ntfy', url: `${sinks.url}/ntfy`, topic: 't', minSeverity: 'high' }] } }, { chat });
+  try {
+    const card = (title, severity) => { app.pipeline.ingest(T.generic({ title, severity, key: title }), 'generic'); app.pipeline.flush(); return app.db.prepare('SELECT id FROM items WHERE title = ?').get(title).id; };
+    const low = card('benign-looking login', 'low');
+    const med = card('odd outbound', 'medium');
+    for (const id of [low, med]) app.llmq.enqueue(id, true);
+    await waitFor(() => app.db.prepare("SELECT COUNT(*) AS n FROM items WHERE llm_state = 'done'").get().n === 2, 10000);
+    await app.notifier.idle();
+    assert.equal(app.db.prepare('SELECT severity FROM items WHERE id = ?').get(low).severity, 'high', 'the card still shows the raised severity');
+    assert.deepEqual(sinks.requests.map((r) => r.body.message.replace(/ \(.*/, '')), ['[HIGH] generic: odd outbound'], 'only the medium card paged');
+  } finally { await app.close(); sinks.server.close(); }
 });

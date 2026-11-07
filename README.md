@@ -1,6 +1,6 @@
 # NetSec Assistant + NetSec Board (prototype v0.5)
 
-**Live demo: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** (runs entirely in your browser; all data is synthetic)
+**Website: https://monnnnnnnnnnn.github.io/kku-netsec-assistant/** · **Manual (ไทย / English): [manual.html](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/manual.html)** (offline copy: [docs/manual.md](docs/manual.md)) · **Browser demo of the v0.3 config review and log-injection lab: [demo.html](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/demo.html)** (runs entirely in your browser; synthetic data)
 
 **Step-by-step guide for the mentor (ไทย / English): https://monnnnnnnnnnn.github.io/kku-netsec-assistant/how-it-works.html**
 
@@ -54,7 +54,7 @@ Schedules are cron expressions in Asia/Bangkok time (`*/2 * * * *`, `@every 30s`
 
 **Security:** async scrypt passwords (at most 20 checks at a time), HttpOnly SameSite=Strict sessions that also end open live streams on logout, CSRF tokens, login backoff per IP (IPv6 per /64; `X-Forwarded-For` only from listed proxies, rightmost hop), at most 2 password checks at once per address with 4 slots kept for known logins, a 15-minute lock per account + address after 10 failures (the account itself only slows down, max 30 s, and never for an address it logged in from), failed/locked logins on an admin tile, viewer/operator/admin roles, strict CSP, no HTML built from strings in the UI (log fields are attacker-controlled), secrets only as references, database `0600` with 30-day retention and an audit of who viewed, pinned or acknowledged what (PDPA: treat `data/board.db` as an ISMS asset). Back it up with `node cli/board.js backup /secure/board-$(date +%F).db` (a consistent copy while the board runs, mode 600; in Docker: `docker compose exec board node cli/board.js backup /data/backup.db`, then `docker compose cp board:/data/backup.db .`); a plain `cp` of a live WAL database can give a torn copy.
 
-**Tests:** `npm test` (122: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks follow vendor documentation **and the recorded behaviour of real systems** (below).
+**Tests:** `npm test` (127: unit, components, integration against mock vendor APIs, CLI, deploy scripts, static XSS check, a regression test for each finding of the 5-, 10- and 20-pass reviews and the privacy checks in `test/board/hardening.test.js`, an anonymous-attacker suite in `test/board/anonymous.test.js` (every route without a session, malformed requests, cookies, CSRF, hooks, login sprays, slow clients, spoofed syslog), performance: 10,000 syslog lines in about 1.5–1.8 s, API p95 under 50 ms on the Oracle ARM box) and `npm run test:e2e` (Playwright: login, live cards, pin/ack/snooze, collapse/expand, toasts, bell, filters, Explain, Thai, dark mode, 390 px phone). CI runs both on Node 22 and 24 plus a Docker compose smoke test. The mocks follow vendor documentation **and the recorded behaviour of real systems** (below).
 
 **Verified against real systems and real data** ([report](results/real-data-eval.md), reproducible with [`lab/`](lab/README.md)):
 
@@ -80,7 +80,7 @@ Not yet verified: a real FortiGate device on current FortiOS, and KKU's own Wazu
 
 ### Try it (2 minutes)
 
-- **In the browser:** open the [live demo](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/), or `index.html` from a clone (works offline). It runs entirely in the tab. Nothing is uploaded.
+- **In the browser:** open the [live demo](https://monnnnnnnnnnn.github.io/kku-netsec-assistant/demo.html), or `demo.html` from a clone (works offline). It runs entirely in the tab. Nothing is uploaded.
   1. **Config review:** the sample loads automatically. Click the severity tiles to filter. Open a finding to see the evidence lines and suggested CLI. Switch between ไทย and English.
   2. **Report:** the ISO/IEC 27001:2022 evidence report. *LLM input (masked)* shows exactly what an LLM would receive.
   3. **Log-injection lab:** select log 2 (or 11, an attack the detector misses), compare the *Naive* and *Hardened* prompts, then click *Run guard*.
@@ -196,7 +196,8 @@ Config work is validated before log integration, so the project does not become 
 
 ```
 src/core.js       parser, checks, report, masking, injection defences (shared by browser, CLI and board)
-src/app.js        browser UI of the config/injection demo; web/page.html + build.js -> index.html (GitHub Pages)
+src/app.js        browser UI of the config/injection demo; web/page.html + build.js -> demo.html (GitHub Pages)
+scripts/build-pages.js  the website: index.html (landing) and manual.html (TH/EN), docs/manual.md
 cli/netsec.js     analyze | narrate | triage | inject-eval
 server/           NetSec Board: main, http (API, SSE, hooks), auth, db (node:sqlite), cron, scheduler,
                   trust (per-source field-trust maps), pipeline, llm + llmqueue, notify, collectors/

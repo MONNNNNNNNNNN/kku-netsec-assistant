@@ -8,11 +8,13 @@
   "retentionDays": 30,
   "lang": "th",
   "tzOffsetMinutes": 420,
-  "board": { "notifyMinSeverity": "high", "newCardsPerMinute": 120, "rearmAfterHours": 24 },
+  "board": { "notifyMinSeverity": "high", "newCardsPerMinute": 120, "rearmAfterHours": 24, "autoResolveAfterHours": { "info": 24, "low": 24, "medium": 72 } },
   "severityOverrides": [],
   "_severityOverrides_example": [
     { "label": "FortiOS logs every admin config change at level alert", "source": "fortigate", "match": { "logdesc": "^Configuration changed$" }, "severity": "high" },
-    { "label": "lab PCs: informational", "source": "wazuh", "match": { "agent.name": "^lab-pc-" }, "severity": "info" }
+    { "label": "lab PCs: informational", "source": "wazuh", "match": { "agent.name": "^lab-pc-" }, "severity": "info" },
+    { "label": "core servers: one level up", "source": "wazuh", "match": { "agent.name": "^core-" }, "raise": 1 },
+    { "label": "server VLAN: one level up", "source": "fortigate", "match": { "dstip": "cidr:10.20.0.0/16" }, "raise": 1 }
   ],
   "sources": {
     "syslog": { "enabled": false, "bind": "0.0.0.0", "port": 5514, "tcp": true, "udp": true, "allow": ["10.0.0.1"], "ratePerSec": 2000, "minSeverity": "low" },

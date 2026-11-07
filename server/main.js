@@ -8,7 +8,7 @@
  */
 const http = require('node:http');
 const db_ = require('./db.js');
-const { loadConfig } = require('./config.js');
+const { loadConfig, sevRank } = require('./config.js');
 const { Pipeline, toItem } = require('./pipeline.js');
 const { Scheduler } = require('./scheduler.js');
 const { SyslogCollector } = require('./collectors/syslog.js');
@@ -142,8 +142,15 @@ async function createApp(loaded, opts = {}) {
     if (c.reopened || c.escalated) touched.set(c.id, Date.now());
     app.queueItem(c);
     if (c.quiet) { app.notifier.boardNote(c); return; } // first-run baseline: board only
+    // K6 correlation raises never page by themselves (one side may come from log text)
+    if (c.correlated) { if (c.escalated) app.notifier.boardNote({ ...c, isNew: false }); return; }
     if (!c.llm) { app.notifier.consider(c); app.llmq.consider(c); }
-    else if (c.escalated) app.notifier.consider({ ...c, isNew: false });
+    // K7: an LLM escalation pages only when the device-derived severity is already medium or more;
+    // otherwise an attacker who talks the model into "malicious" on a low event could page the NOC
+    else if (c.escalated) {
+      if (sevRank(c.item.detSeverity) >= sevRank('medium')) app.notifier.consider({ ...c, isNew: false });
+      else app.notifier.boardNote({ ...c, isNew: false });
+    }
   });
   app.notifier.on('board', (n) => { pendingNotes.push(n); armSse(); });
   app.notifier.on('error', (e) => log(`notify ${e.channel}: ${e.error}`));
@@ -168,6 +175,11 @@ async function createApp(loaded, opts = {}) {
     }
   }, opts.heartbeatMs ?? 25000);
   const ret = setInterval(() => db_.retention(db, cfg.retentionDays), 6 * 3600000);
+  // K4: close idle cards of never-resolving events (every 10 min; not in the cron CLI)
+  const idle = setInterval(() => app.pipeline.resolveIdle(), opts.idleSweepMs ?? 600000);
+  idle.unref();
+  if (cli) clearInterval(idle);
+  app.stopIdle = () => clearInterval(idle);
   for (const t of [dvTimer, hb, ret]) t.unref();
   if (cli) { clearInterval(dvTimer); clearInterval(hb); clearInterval(ret); } else db_.retention(db, cfg.retentionDays);
 
@@ -193,7 +205,7 @@ async function createApp(loaded, opts = {}) {
   }
 
   app.close = async () => {
-    clearInterval(dvTimer); clearInterval(hb); clearInterval(ret); clearTimeout(sseTimer);
+    clearInterval(dvTimer); clearInterval(hb); clearInterval(ret); app.stopIdle(); clearTimeout(sseTimer);
     app.scheduler.stop(); app.notifier.stop(); app.llmq.stop();
     if (app.syslog) app.syslog.stop();
     app.pipeline.flush();

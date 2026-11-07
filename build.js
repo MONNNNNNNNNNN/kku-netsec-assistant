@@ -4,7 +4,7 @@
  * Inline core + app + sample data into single-file pages:
  *   dist/index.html       artifact body (the host adds <!doctype>/<head>)
  *   dist/standalone.html  full document for opening offline from disk
- *   index.html            same document at the repo root, served by GitHub Pages
+ *   demo.html             same document at the repo root, served by GitHub Pages
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,6 +33,7 @@ fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(__dirname, 'dist/index.html'), body);
 const standalone = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta http-equiv="Content-Security-Policy" content="${CSP}">\n<style>:root{color-scheme:light}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>\n</head>\n<body>\n${body}\n</body>\n</html>\n`;
 fs.writeFileSync(path.join(__dirname, 'dist/standalone.html'), standalone);
-// GitHub Pages serves the repo root: the demo is index.html there
-fs.writeFileSync(path.join(__dirname, 'index.html'), standalone);
+// GitHub Pages serves the repo root: the demo is demo.html there (index.html is the NetSec Board
+// landing page, built by scripts/build-pages.js)
+fs.writeFileSync(path.join(__dirname, 'demo.html'), standalone);
 console.log(`dist/index.html ${(body.length / 1024).toFixed(0)} KB, dist/standalone.html, eval: ${evalFile || 'none'}`);

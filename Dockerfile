@@ -3,7 +3,7 @@
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production NETSEC_CONFIG=/config/netsec.json
 WORKDIR /app
-COPY package.json LICENSE netsec.example.json ./
+COPY package.json LICENSE netsec.example.json manual.html ./
 COPY src ./src
 COPY server ./server
 COPY cli ./cli

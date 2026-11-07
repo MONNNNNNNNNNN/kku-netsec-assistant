@@ -66,6 +66,7 @@ class Pipeline extends EventEmitter {
     // lives in the card (trusted.distinct), so a restart or a dropped set only loses dedupe memory
     this.burstSeen = new Map();
     this.overrides = compileOverrides(cfg.severityOverrides).rules;
+    this.ipSeen = new Map(); // K6: ip -> {fortigate|wazuh: {id, at}}, LRU-bounded
   }
 
   /**
@@ -74,17 +75,76 @@ class Pipeline extends EventEmitter {
    * fields can never steer it). An event the injection detector flagged stays at least medium.
    */
   applyOverrides(e) {
+    let fixed = null, raise = 0;
+    const labels = [];
     for (const o of this.overrides) {
       if (o.source && o.source !== e.source) continue;
-      if (!o.match.every(([k, re]) => e.trusted[k] !== undefined && re.test(String(e.trusted[k])))) continue;
-      let sev = o.severity;
-      if (e.flags && e.flags.length && sevRank(sev) < sevRank('medium')) sev = 'medium';
-      e.detSeverity = sev;
-      e.floor = sevRank(sev) >= sevRank('medium') ? [`${e.source} severity ${sev} (operator override)`] : [];
-      e.trusted = { ...e.trusted, override: o.label };
-      return e;
+      if (!o.match.every(([k, test]) => e.trusted[k] !== undefined && test(String(e.trusted[k])))) continue;
+      if (o.severity) { if (fixed) continue; fixed = o.severity; } else raise += o.raise; // severity: first rule wins; raise: adds up (asset context)
+      labels.push(o.label);
     }
+    if (!labels.length) return e;
+    let sev = SEV[Math.min(SEV.length - 1, sevRank(fixed || e.detSeverity) + raise)];
+    if (e.flags && e.flags.length && sevRank(sev) < sevRank('medium')) sev = 'medium';
+    e.detSeverity = sev;
+    e.floor = sevRank(sev) >= sevRank('medium') ? [`${e.source} severity ${sev} (operator override)`] : [];
+    e.trusted = { ...e.trusted, override: labels.join('; ') };
     return e;
+  }
+
+  /**
+   * K4: close cards of events that never send a resolve (FortiGate, syslog, Wazuh, generic) after
+   * a quiet period per severity (board.autoResolveAfterHours; high and critical never: a human
+   * decides). Zabbix and config cards have real resolves; pinned cards stay. A recurrence
+   * re-opens the card and notifies (the S1 path).
+   */
+  resolveIdle(now = this.now()) {
+    const hours = { info: 24, low: 24, medium: 72, ...((this.cfg.board && this.cfg.board.autoResolveAfterHours) || {}) };
+    const out = [];
+    for (const [sev, h] of Object.entries(hours)) {
+      if (!SEV.includes(sev) || !(Number(h) > 0) || sevRank(sev) >= sevRank('high')) continue;
+      const rows = this.db.prepare("SELECT id FROM items WHERE resolved_at IS NULL AND pinned_at IS NULL AND severity = ? AND source != 'zabbix' AND kind != 'config' AND last_seen < ?").all(sev, now - Number(h) * 3600000);
+      for (const r of rows) {
+        this.db.prepare('UPDATE items SET resolved_at = ? WHERE id = ?').run(now, r.id);
+        const c = { id: r.id, item: toItem(this.byId.get(r.id)), resolved: true, idle: true };
+        this.emit('change', c); out.push(c);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * K6: the same source IP within an hour in FortiGate (device-generated srcip) and in Wazuh links
+   * both cards: a `correlated` field and one level up, capped at high. One side is always a
+   * trusted device field, so log text alone cannot link two cards. The raise never pages by
+   * itself (board note only, see main.js).
+   */
+  correlate(c) {
+    const it = c.item;
+    if (!it || c.resolved || !['fortigate', 'wazuh'].includes(it.source)) return [];
+    const ip = it.source === 'fortigate' ? it.trusted.srcip : it.untrusted['data.srcip'] || it.trusted['data.srcip'];
+    if (!ip) return [];
+    const now = this.now();
+    let seen = this.ipSeen.get(ip);
+    if (seen) this.ipSeen.delete(ip); else seen = {};
+    seen[it.source] = { id: it.id, at: now };
+    this.ipSeen.set(ip, seen);
+    while (this.ipSeen.size > 10000) this.ipSeen.delete(this.ipSeen.keys().next().value);
+    const f = seen.fortigate, w = seen.wazuh;
+    if (!f || !w || Math.abs(f.at - w.at) > 3600000) return [];
+    const out = [];
+    for (const id of [f.id, w.id]) {
+      const row = this.byId.get(id);
+      if (!row || row.resolved_at) continue;
+      const tr = JSON.parse(row.trusted);
+      if (tr.correlated) continue; // once per card
+      tr.correlated = `fortigate+wazuh (${ip})`;
+      const sev = sevRank(row.severity) >= sevRank('high') ? row.severity : SEV[sevRank(row.severity) + 1];
+      this.db.prepare('UPDATE items SET trusted = ?, severity = ? WHERE id = ?').run(JSON.stringify(tr), sev, id);
+      const cc = { id, item: toItem(this.byId.get(id)), correlated: true, escalated: sev !== row.severity };
+      this.emit('change', cc); out.push(cc);
+    }
+    return out;
   }
 
   /** True when `source` already opened its budget of new cards in the last minute. */
@@ -147,6 +207,7 @@ class Pipeline extends EventEmitter {
       for (const [s, n] of Object.entries(counts)) { bumpSource(this.db, s, 'received', n); updateSource(this.db, s, { last_ok: this.now() }); }
     });
     for (const c of changes) { c.item = toItem(this.byId.get(c.id)); this.emit('change', c); }
+    for (const c of changes) this.correlate(c);
     return changes;
   }
 
@@ -227,16 +288,27 @@ class Pipeline extends EventEmitter {
 /** Validate + compile cfg.severityOverrides. Returns {rules, errors} (check reports the errors). */
 function compileOverrides(list) {
   const rules = [], errors = [];
+  const { allowed, validEntry } = require('./collectors/syslog.js');
   (Array.isArray(list) ? list : []).forEach((o, i) => {
     const at = `severityOverrides[${i}]`;
     if (!o || typeof o !== 'object') { errors.push(`${at}: not an object`); return; }
-    if (!SEV.includes(o.severity)) { errors.push(`${at}: severity must be one of ${SEV.join(', ')}`); return; }
+    const hasSev = o.severity !== undefined, hasRaise = o.raise !== undefined;
+    if (hasSev === hasRaise) { errors.push(`${at}: give either severity or raise`); return; }
+    if (hasSev && !SEV.includes(o.severity)) { errors.push(`${at}: severity must be one of ${SEV.join(', ')}`); return; }
+    if (hasRaise && !(Number.isInteger(o.raise) && o.raise >= 1 && o.raise <= 4)) { errors.push(`${at}: raise must be 1-4 levels`); return; }
     if (!o.match || typeof o.match !== 'object' || !Object.keys(o.match).length) { errors.push(`${at}: match needs at least one trusted field`); return; }
     const match = [];
     for (const [k, v] of Object.entries(o.match)) {
-      try { match.push([k, new RegExp(String(v), 'i')]); } catch (e) { errors.push(`${at}: match.${k}: ${e.message}`); return; }
+      const s = String(v);
+      if (/^cidr:/i.test(s)) { // an IP field inside a network: "cidr:10.20.0.0/16"
+        const cidr = s.slice(5);
+        if (!validEntry(cidr)) { errors.push(`${at}: match.${k}: not a CIDR: ${cidr}`); return; }
+        match.push([k, (val) => allowed([cidr], val)]);
+        continue;
+      }
+      try { const re = new RegExp(s, 'i'); match.push([k, (val) => re.test(val)]); } catch (e) { errors.push(`${at}: match.${k}: ${e.message}`); return; }
     }
-    rules.push({ source: o.source || null, match, severity: o.severity, label: o.label || `${at}` });
+    rules.push({ source: o.source || null, match, severity: hasSev ? o.severity : null, raise: hasRaise ? o.raise : 0, label: o.label || `${at}` });
   });
   return { rules, errors };
 }

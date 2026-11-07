@@ -246,6 +246,12 @@ function createHandler(app) {
     try {
       // an absolute-form or malformed request-target (GET //a:99999) makes new URL throw
       try { url = new URL(req.url, 'http://x'); } catch { throw new HttpError(400, 'bad request target'); }
+      // the TH/EN manual (repo root manual.html), offline: no external fonts, and a CSP of its own
+      // because the page carries its inline style and the language switch (no data, no network)
+      if (req.method === 'GET' && url.pathname === '/manual.html') {
+        const manual = fs.readFileSync(path.join(__dirname, '..', 'manual.html'), 'utf8').replace(/<link[^>]+fonts\.(googleapis|gstatic)[^>]*>\n?/g, '').replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\n?/, '');
+        return send(res, 200, manual, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
+      }
       if (req.method === 'GET' && STATIC[url.pathname]) {
         const [f, type] = STATIC[url.pathname];
         return send(res, 200, fs.readFileSync(path.join(BOARD, f)), { 'content-type': type, 'cache-control': 'no-cache' });

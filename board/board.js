@@ -9,7 +9,7 @@
   // ---------------------------------------------------------------- i18n
   const T = {
     th: {
-      login: 'เข้าสู่ระบบ', username: 'ชื่อผู้ใช้', password: 'รหัสผ่าน', signin: 'เข้าสู่ระบบ', logout: 'ออกจากระบบ',
+      login: 'เข้าสู่ระบบ', username: 'ชื่อผู้ใช้', password: 'รหัสผ่าน', signin: 'เข้าสู่ระบบ', logout: 'ออกจากระบบ', manual: 'คู่มือ',
       search: 'ค้นหา (/)', collapseAll: 'ย่อทั้งหมด', expandAll: 'ขยายทั้งหมด', theme: 'ธีม', notifications: 'การแจ้งเตือน',
       otherOpen: 'อื่น ๆ ที่เปิดอยู่', critHigh: 'วิกฤต + สูง ที่ยังเปิดอยู่', bySeverity: 'ตามระดับความรุนแรง', last24: 'รายการใหม่ 24 ชม.',
       pinned: 'ปักหมุด', live: 'สด', viewOpen: 'เปิดอยู่', viewAcked: 'รับทราบแล้ว', viewAll: 'ทั้งหมด', empty: 'ไม่มีรายการ',
@@ -31,7 +31,7 @@
       st: { ok: 'ปกติ', listening: 'รอรับ', running: 'กำลังดึง', degraded: 'มีปัญหา', down: 'ล่ม', off: 'ปิด', idle: 'รอ' },
     },
     en: {
-      login: 'Sign in', username: 'Username', password: 'Password', signin: 'Sign in', logout: 'Sign out',
+      login: 'Sign in', username: 'Username', password: 'Password', signin: 'Sign in', logout: 'Sign out', manual: 'Manual',
       search: 'Search (/)', collapseAll: 'Collapse all', expandAll: 'Expand all', theme: 'Theme', notifications: 'Notifications',
       otherOpen: 'other open', critHigh: 'Open critical + high', bySeverity: 'By severity', last24: 'New items, 24 h',
       pinned: 'Pinned', live: 'Live', viewOpen: 'Open', viewAcked: 'Acknowledged', viewAll: 'All', empty: 'Nothing here',
@@ -190,6 +190,8 @@
         h('button', { class: 'btn', 'aria-label': 'TH/EN', onclick: () => { S.lang = S.lang === 'th' ? 'en' : 'th'; store.set('lang', S.lang); renderShell(); } }, S.lang === 'th' ? 'EN' : 'TH'),
         h('button', { class: 'btn', 'aria-label': t('theme'), onclick: cycleTheme }, S.theme === 'dark' ? '☾' : S.theme === 'light' ? '☀' : '◐'),
         bell,
+        // served by the board itself, so the manual works on an air-gapped network too
+        h('a', { class: 'btn', href: `/manual.html?lang=${S.lang === 'en' ? 'en' : 'th'}`, target: '_blank', rel: 'noopener' }, `? ${t('manual')}`),
         h('button', { class: 'btn ghost', onclick: logout }, `${S.me.username} · ${t('logout')}`)),
       els.chips = h('div', { class: 'chips', role: 'group', 'aria-label': `${t('sources')} / ${t('severity')}` }));
     els.hero = h('section', { class: 'bento', 'aria-label': 'summary' });
