@@ -47,6 +47,9 @@ function pageSeverityOf(det, dev, llm) {
   return sevRank(dev) >= sevRank('medium') ? finalSeverity(det, llm && llm.classification ? llm : null) : det;
 }
 
+/** The page severity a stored row has now (optionally with a different AI verdict). */
+const rowPage = (r, llm = r.llm ? JSON.parse(r.llm) : null) => pageSeverityOf(r.det_severity, r.dev_severity || r.det_severity, llm);
+
 function toItem(r) {
   if (!r) return null;
   const now = Date.now();
@@ -252,7 +255,10 @@ class Pipeline extends EventEmitter {
     const det = maxSev(row.det_severity, e.detSeverity);
     const dev = maxSev(row.dev_severity || row.det_severity, e.devSeverity || e.detSeverity);
     const sev = maxSev(row.severity, det);
-    const escalated = sevRank(sev) > sevRank(row.severity);
+    // F2: a board-only raise (correlation, AI on a device-low card) must not hide a real rise from
+    // the device: an escalation is also "the page severity went up"
+    const pageUp = sevRank(pageSeverityOf(det, dev, row.llm ? JSON.parse(row.llm) : null)) > sevRank(rowPage(row));
+    const escalated = sevRank(sev) > sevRank(row.severity) || pageUp;
     const reopened = !!row.resolved_at;
     // events that never resolve (FortiGate, Wazuh) would stay silent forever once acked: a repeat
     // after a quiet gap (board.rearmAfterHours, default 24; 0 = off) re-arms the card like a
@@ -288,7 +294,8 @@ class Pipeline extends EventEmitter {
     const row = this.byId.get(id);
     if (!row) return null;
     const sev = maxSev(row.severity, finalSeverity(row.det_severity, verdict));
-    const escalated = sevRank(sev) > sevRank(row.severity);
+    const pageUp = sevRank(rowPage(row, verdict)) > sevRank(rowPage(row)); // F2, as in upsert
+    const escalated = sevRank(sev) > sevRank(row.severity) || pageUp;
     this.db.prepare("UPDATE items SET llm = ?, llm_state = 'done', severity = ? WHERE id = ?").run(JSON.stringify({ ...verdict, ...meta }), sev, id);
     // same rule as upsert: an escalation re-opens an acknowledged or snoozed card
     if (escalated) this.db.prepare('UPDATE items SET acked_by = NULL, acked_at = NULL, snoozed_until = NULL, snoozed_by = NULL, escalated_at = ? WHERE id = ?').run(this.now(), id);
