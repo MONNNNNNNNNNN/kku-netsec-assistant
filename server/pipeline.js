@@ -65,6 +65,26 @@ class Pipeline extends EventEmitter {
     // BURST_KEYS bursts (least recently used dropped) of BURST_SET entries each; the count itself
     // lives in the card (trusted.distinct), so a restart or a dropped set only loses dedupe memory
     this.burstSeen = new Map();
+    this.overrides = compileOverrides(cfg.severityOverrides).rules;
+  }
+
+  /**
+   * Operator severity overrides (cfg.severityOverrides): the first rule whose source matches and
+   * whose every `match` regex matches a TRUSTED field sets the severity (attacker-controlled
+   * fields can never steer it). An event the injection detector flagged stays at least medium.
+   */
+  applyOverrides(e) {
+    for (const o of this.overrides) {
+      if (o.source && o.source !== e.source) continue;
+      if (!o.match.every(([k, re]) => e.trusted[k] !== undefined && re.test(String(e.trusted[k])))) continue;
+      let sev = o.severity;
+      if (e.flags && e.flags.length && sevRank(sev) < sevRank('medium')) sev = 'medium';
+      e.detSeverity = sev;
+      e.floor = sevRank(sev) >= sevRank('medium') ? [`${e.source} severity ${sev} (operator override)`] : [];
+      e.trusted = { ...e.trusted, override: o.label };
+      return e;
+    }
+    return e;
   }
 
   /** True when `source` already opened its budget of new cards in the last minute. */
@@ -101,6 +121,7 @@ class Pipeline extends EventEmitter {
    * opts.quiet: a source's first run (baseline): the cards appear, but no channel or AI fires.
    */
   ingest(evt, counterSource = evt.source, opts = {}) {
+    if (this.overrides.length && !evt.resolve) this.applyOverrides(evt);
     if (!evt.resolve && sevRank(evt.detSeverity) < sevRank(this.minSeverity(counterSource))) {
       bumpSource(this.db, counterSource, 'filtered');
       return false;
@@ -153,17 +174,22 @@ class Pipeline extends EventEmitter {
     const sev = maxSev(row.severity, det);
     const escalated = sevRank(sev) > sevRank(row.severity);
     const reopened = !!row.resolved_at;
+    // events that never resolve (FortiGate, Wazuh) would stay silent forever once acked: a repeat
+    // after a quiet gap (board.rearmAfterHours, default 24; 0 = off) re-arms the card like a
+    // recurrence (ack cleared, notified again). An active snooze is still respected.
+    const rearmMs = ((this.cfg.board && this.cfg.board.rearmAfterHours) ?? 24) * 3600000;
+    const rearmed = !reopened && !escalated && !!row.acked_by && rearmMs > 0 && now - row.last_seen >= rearmMs;
     // an escalation or a recurrence (the problem was resolved and came back) re-opens an
     // acknowledged or snoozed card; a plain repeat keeps both
-    const keepAck = row.acked_by && !escalated && !reopened;
+    const keepAck = row.acked_by && !escalated && !reopened && !rearmed;
     const keepSnooze = row.snoozed_until && !escalated && !reopened;
     // evidence is merged, never replaced: a clean repeat must not wash out an earlier injection
     const flags = union(JSON.parse(row.flags), e.flags, MAX_FLAGS);
     const floor = union(JSON.parse(row.floor || '[]'), e.floor, MAX_FLAGS);
     const samples = addSample(JSON.parse(row.samples || '[]'), e, now);
     this.upd.run(now, det, sev, e.title, j(e.trusted), j(e.untrusted), j(flags), j(floor), j(samples), e.link || null, null,
-      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened ? now : row.reopened_at, escalated ? now : row.escalated_at, row.id);
-    return { id: row.id, isNew: reopened, reopened, escalated, resolved: false, repeat: true };
+      keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened || rearmed ? now : row.reopened_at, escalated ? now : row.escalated_at, row.id);
+    return { id: row.id, isNew: reopened || rearmed, reopened: reopened || rearmed, rearmed, escalated, resolved: false, repeat: true };
   }
 
   /** Mark config cards resolved when their finding is gone from a newer backup. */
@@ -198,4 +224,21 @@ class Pipeline extends EventEmitter {
   }
 }
 
-module.exports = { Pipeline, toItem, finalSeverity, CLASS_SEV, addSample };
+/** Validate + compile cfg.severityOverrides. Returns {rules, errors} (check reports the errors). */
+function compileOverrides(list) {
+  const rules = [], errors = [];
+  (Array.isArray(list) ? list : []).forEach((o, i) => {
+    const at = `severityOverrides[${i}]`;
+    if (!o || typeof o !== 'object') { errors.push(`${at}: not an object`); return; }
+    if (!SEV.includes(o.severity)) { errors.push(`${at}: severity must be one of ${SEV.join(', ')}`); return; }
+    if (!o.match || typeof o.match !== 'object' || !Object.keys(o.match).length) { errors.push(`${at}: match needs at least one trusted field`); return; }
+    const match = [];
+    for (const [k, v] of Object.entries(o.match)) {
+      try { match.push([k, new RegExp(String(v), 'i')]); } catch (e) { errors.push(`${at}: match.${k}: ${e.message}`); return; }
+    }
+    rules.push({ source: o.source || null, match, severity: o.severity, label: o.label || `${at}` });
+  });
+  return { rules, errors };
+}
+
+module.exports = { Pipeline, toItem, finalSeverity, CLASS_SEV, addSample, compileOverrides };

@@ -158,6 +158,9 @@ async function check({ cfg, raw, secretsWarning }) {
   const db = db_.openDb(cfg.dataDir);
   ok(`database ${db.file} (mode ${(fs.statSync(db.file).mode & 0o777).toString(8)}, retention ${cfg.retentionDays} days)`);
   if (secretsWarning) warn(secretsWarning);
+  const ov = require('../server/pipeline.js').compileOverrides(raw.severityOverrides);
+  for (const e of ov.errors) err(e);
+  if (ov.rules.length) ok(`${ov.rules.length} severity override(s), matched on trusted fields only`);
   if (!db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n) {
     if (process.env.NETSEC_ADMIN_HASH) ok(`admin "${process.env.NETSEC_ADMIN_USER || 'admin'}" is created on the board's first start (secrets.env)`);
     else err('no admin user: run "setup" or "init"');

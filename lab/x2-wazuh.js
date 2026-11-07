@@ -72,15 +72,21 @@ async function indexer(body, what = '_search') {
   const st = () => app.db.prepare("SELECT received, filtered FROM source_state WHERE source = 'wazuh'").get();
   // the board's first query starts lagWindow (120 s) before the cursor
   const windowStart = FROM ? Date.parse(FROM) - 120000 : t0 - (/(\d+)h/.test(LOOKBACK) ? Number(LOOKBACK.match(/(\d+)h/)[1]) * 3600000 : 3600000);
+
+  // Filebeat indexes alerts a few seconds after their timestamp, so a single pull cannot see the
+  // last ones; the next pull's lag window does. Do what the scheduler does (pull again after a
+  // pause), then bound the board: complete for everything up to t0, no more than the indexer holds now
+  const firstPullMs = Date.now() - t0;
+  const fetchedFirst = st().received + st().filtered;
+  await sleep(20000);
+  await app.scheduler.run('wazuh');
+  const tEnd = Date.now();
   const idx = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }] } } }, '_count');
   const idxAll = await indexer({ query: { range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } } }, '_count');
-  // live alerts keep arriving during the pull: bound the board between the indexer's count at the
-  // start (t0) and at the end of the pull (the window is open-ended while Filebeat ships)
-  const tEnd = Date.now();
   const idxEnd = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gte: windowStart, lte: tEnd, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }] } } }, '_count');
   const idxAllEnd = await indexer({ query: { range: { timestamp: { gte: windowStart, lte: tEnd, format: 'epoch_millis' } } } }, '_count');
   out.completenessBounds = { level4plus: [idx.count, idxEnd.count], all: [idxAll.count, idxAllEnd.count], boardReceivedWithin: st().received >= idx.count && st().received <= idxEnd.count, boardFetchedWithin: st().received + st().filtered >= idxAll.count && st().received + st().filtered <= idxAllEnd.count };
-  out.completeness = { from: FROM, indexerLevel4plus: idx.count, indexerAll: idxAll.count, boardFetched: st().received + st().filtered, boardReceived: st().received, boardFiltered: st().filtered, runs, pullMs: Date.now() - t0, alertsPerSec: Math.round((st().received + st().filtered) / ((Date.now() - t0) / 1000)) };
+  out.completeness = { from: FROM, indexerLevel4plus: idx.count, indexerAll: idxAll.count, boardFetched: st().received + st().filtered, boardReceived: st().received, boardFiltered: st().filtered, runs, firstPullMs, alertsPerSec: Math.round(fetchedFirst / (firstPullMs / 1000)) };
 
   // 4. cards per rule / agent, without identities
   const items = app.db.prepare("SELECT title, count, severity, flags, samples, trusted, untrusted FROM items WHERE source = 'wazuh'").all();
@@ -102,7 +108,8 @@ async function indexer(body, what = '_search') {
     flaggedCards: lab.filter((i) => JSON.parse(i.flags).length).map((i) => ({ title: i.title.replace(/ \(.*\)$/, ''), flags: JSON.parse(i.flags) })),
   };
   const host = items.filter((it) => JSON.parse(it.trusted)['agent.name'] !== 'lab-victim');
-  const srcs = new Set(host.map((i) => JSON.parse(i.untrusted || '{}')['data.srcip'] || JSON.parse(i.trusted)['data.srcip']).filter(Boolean));
+  // sources: the card's latest event plus its samples (low alerts group several IPs per card)
+  const srcs = new Set(host.flatMap((i) => [JSON.parse(i.untrusted || '{}')['data.srcip'], JSON.parse(i.trusted)['data.srcip'], ...JSON.parse(i.samples || '[]').map((x) => x.untrusted && x.untrusted['data.srcip'])]).filter(Boolean));
   out.hostTraffic = { cards: host.length, events: host.reduce((n, i) => n + i.count, 0), distinctSources: srcs.size };
 
   // 5. restart: same database, pull again -> nothing counted twice

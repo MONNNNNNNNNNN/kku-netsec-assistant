@@ -1,20 +1,32 @@
 {
-  "ranAt": "2026-11-07T07:19:20.296Z",
+  "ranAt": "2026-11-07T07:50:18.159Z",
   "lookback": "24h",
   "setup": [
     "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*"
   ],
   "setupNote": null,
+  "completenessBounds": {
+    "level4plus": [
+      3390,
+      3409
+    ],
+    "all": [
+      3502,
+      3527
+    ],
+    "boardReceivedWithin": true,
+    "boardFetchedWithin": true
+  },
   "completeness": {
     "from": "2026-11-07T07:10:00Z",
-    "indexerLevel4plus": 1155,
-    "indexerAll": 1183,
-    "boardFetched": 1183,
-    "boardReceived": 1155,
-    "boardFiltered": 28,
+    "indexerLevel4plus": 3390,
+    "indexerAll": 3502,
+    "boardFetched": 3527,
+    "boardReceived": 3409,
+    "boardFiltered": 118,
     "runs": 1,
-    "pullMs": 860,
-    "alertsPerSec": 1376
+    "firstPullMs": 1785,
+    "alertsPerSec": 1960
   },
   "cardsByRule": {
     "60602 Windows application error event.": {
@@ -24,7 +36,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 581
+        "events": 2207
       },
       "severity": "medium"
     },
@@ -35,7 +47,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 83
+        "events": 315
       },
       "severity": "high"
     },
@@ -46,25 +58,25 @@
       },
       "host": {
         "cards": 1,
-        "events": 108
+        "events": 313
       },
       "severity": "high"
     },
     "5710 sshd: Attempt to login using a non-existent user": {
       "lab": {
         "cards": 1,
-        "events": 195
+        "events": 234
       },
       "host": {
-        "cards": 16,
-        "events": 28
+        "cards": 1,
+        "events": 93
       },
       "severity": "low"
     },
     "5503 PAM: User login failed.": {
       "lab": {
         "cards": 1,
-        "events": 88
+        "events": 106
       },
       "host": {
         "cards": 0,
@@ -78,15 +90,15 @@
         "events": 0
       },
       "host": {
-        "cards": 2,
-        "events": 2
+        "cards": 1,
+        "events": 7
       },
       "severity": "low"
     },
     "5712 sshd: brute force trying to get access to the system. Non existent use": {
       "lab": {
         "cards": 1,
-        "events": 5
+        "events": 6
       },
       "host": {
         "cards": 0,
@@ -97,7 +109,7 @@
     "5551 PAM: Multiple failed logins in a small period of time.": {
       "lab": {
         "cards": 1,
-        "events": 12
+        "events": 14
       },
       "host": {
         "cards": 0,
@@ -112,14 +124,14 @@
       },
       "host": {
         "cards": 1,
-        "events": 2
+        "events": 45
       },
       "severity": "low"
     },
     "550 Integrity checksum changed.": {
       "lab": {
         "cards": 1,
-        "events": 1
+        "events": 2
       },
       "host": {
         "cards": 0,
@@ -130,7 +142,7 @@
     "31103 SQL injection attempt.": {
       "lab": {
         "cards": 1,
-        "events": 9
+        "events": 11
       },
       "host": {
         "cards": 0,
@@ -141,7 +153,7 @@
     "31105 XSS": {
       "lab": {
         "cards": 1,
-        "events": 9
+        "events": 11
       },
       "host": {
         "cards": 0,
@@ -152,7 +164,7 @@
     "31104 Common web attack.": {
       "lab": {
         "cards": 1,
-        "events": 9
+        "events": 11
       },
       "host": {
         "cards": 0,
@@ -163,7 +175,7 @@
     "31101 Web server 400 error code.": {
       "lab": {
         "cards": 1,
-        "events": 19
+        "events": 23
       },
       "host": {
         "cards": 0,
@@ -214,22 +226,66 @@
         "events": 0
       },
       "severity": "high"
+    },
+    "92213 Executable file dropped in folder commonly used by malware": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 3
+      },
+      "severity": "critical"
+    },
+    "92078 Cmd.exe executed from non-standard directory, may be related to link e": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "high"
+    },
+    "92052 Windows command prompt started by an abnormal process": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 2
+      },
+      "severity": "low"
+    },
+    "92154 Process loaded taskschd.dll module. May be used to create delayed malw": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "low"
     }
   },
-  "cards": 35,
-  "pushesAfterQuietFirstRun": 8,
+  "cards": 23,
+  "pushesAfterQuietFirstRun": 10,
   "lab": {
     "cards": 13,
-    "events": 351,
+    "events": 422,
     "sshCards": [
       {
         "title": "sshd: Attempt to login using a non-existent user",
-        "count": 195,
+        "count": 234,
         "samples": 5
       },
       {
         "title": "sshd: brute force trying to get access to the system. Non existent user.",
-        "count": 5,
+        "count": 6,
         "samples": 5
       }
     ],
@@ -251,22 +307,15 @@
     ]
   },
   "hostTraffic": {
-    "cards": 22,
-    "events": 804,
-    "distinctSources": 18
+    "cards": 10,
+    "events": 2987,
+    "distinctSources": 8
   },
   "restart": {
-    "eventsBefore": 1155,
-    "eventsAfter": 1155,
-    "newSinceRestart": 0
-  },
-  "liveLatency": {
-    "schedule": "15s",
-    "labCards": 9,
-    "alertToCardMs": {
-      "min": 8653,
-      "median": 13033,
-      "max": 18726
-    }
+    "eventsBefore": 3409,
+    "eventsAfter": 3409,
+    "newSinceRestart": 0,
+    "arrivedAfterCursor": 0,
+    "duplicates": 0
   }
 }

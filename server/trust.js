@@ -129,8 +129,11 @@ function wazuh(alert, id, opts = {}, now = Date.now()) {
     source: 'wazuh', kind: 'alert', ts,
     title: `${r.description || `rule ${r.id}`}${alert.agent && alert.agent.name ? ` (${alert.agent.name})` : ''}`,
     trusted, untrusted, detSeverity: wazuhSev(r.level),
-    // no user names in the key: a brute force with random names stays one card
-    fingerprint: fingerprint('wazuh', 'alert', [r.id, alert.agent && alert.agent.id, flat['data.srcip']]),
+    // no user names in the key: a brute force with random names stays one card. Below
+    // perSourceCardsFrom (default medium) the source IP is not in the key either: internet SSH
+    // scanning (rule 5710, low) made one card per attacker IP on a real host; the IPs stay as samples
+    fingerprint: fingerprint('wazuh', 'alert', [r.id, alert.agent && alert.agent.id,
+      sevRank(wazuhSev(r.level)) >= sevRank(SEV.includes(opts.perSourceCardsFrom) ? opts.perSourceCardsFrom : 'medium') ? flat['data.srcip'] : '']),
     burstKey: [r.id, alert.agent && alert.agent.id],
     link: opts.dashboardUrl ? `${opts.dashboardUrl.replace(/\/+$/, '')}/app/threat-hunting` : null,
   });

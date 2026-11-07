@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-11-07T07:38:14.082Z",
+  "ranAt": "2026-11-07T07:50:40.842Z",
   "lookback": "24h",
   "setup": [
     "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*"
@@ -7,36 +7,36 @@
   "setupNote": null,
   "completenessBounds": {
     "level4plus": [
-      49006,
-      49030
+      49834,
+      49873
     ],
     "all": [
-      57936,
-      57960
+      58800,
+      58839
     ],
     "boardReceivedWithin": true,
     "boardFetchedWithin": true
   },
   "completeness": {
     "from": "2026-10-15T00:00:00+07:00",
-    "indexerLevel4plus": 49006,
-    "indexerAll": 57936,
-    "boardFetched": 57956,
-    "boardReceived": 49026,
-    "boardFiltered": 8930,
+    "indexerLevel4plus": 49834,
+    "indexerAll": 58800,
+    "boardFetched": 58839,
+    "boardReceived": 49873,
+    "boardFiltered": 8966,
     "runs": 12,
-    "pullMs": 24641,
-    "alertsPerSec": 2352
+    "firstPullMs": 24052,
+    "alertsPerSec": 2446
   },
   "cardsByRule": {
     "5710 sshd: Attempt to login using a non-existent user": {
       "lab": {
-        "cards": 0,
-        "events": 0
+        "cards": 1,
+        "events": 429
       },
       "host": {
-        "cards": 76,
-        "events": 2429
+        "cards": 1,
+        "events": 4658
       },
       "severity": "low"
     },
@@ -46,8 +46,8 @@
         "events": 0
       },
       "host": {
-        "cards": 20,
-        "events": 339
+        "cards": 1,
+        "events": 446
       },
       "severity": "low"
     },
@@ -64,8 +64,8 @@
     },
     "550 Integrity checksum changed.": {
       "lab": {
-        "cards": 0,
-        "events": 0
+        "cards": 1,
+        "events": 4
       },
       "host": {
         "cards": 1,
@@ -97,12 +97,12 @@
     },
     "5712 sshd: brute force trying to get access to the system. Non existent use": {
       "lab": {
-        "cards": 0,
-        "events": 0
+        "cards": 1,
+        "events": 11
       },
       "host": {
-        "cards": 4,
-        "events": 10
+        "cards": 7,
+        "events": 20
       },
       "severity": "high"
     },
@@ -135,7 +135,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 35046
+        "events": 35708
       },
       "severity": "medium"
     },
@@ -190,7 +190,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 5009
+        "events": 5104
       },
       "severity": "high"
     },
@@ -245,7 +245,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 503
+        "events": 557
       },
       "severity": "high"
     },
@@ -260,29 +260,7 @@
       },
       "severity": "low"
     },
-    "5762 alert: burst of distinct events": {
-      "lab": {
-        "cards": 0,
-        "events": 0
-      },
-      "host": {
-        "cards": 1,
-        "events": 104
-      },
-      "severity": "low"
-    },
-    "5710 alert: burst of distinct events": {
-      "lab": {
-        "cards": 1,
-        "events": 429
-      },
-      "host": {
-        "cards": 1,
-        "events": 2206
-      },
-      "severity": "low"
-    },
-    "92213 alert: burst of distinct events": {
+    "92213 Executable file dropped in folder commonly used by malware": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -293,7 +271,7 @@
       },
       "severity": "critical"
     },
-    "92217 alert: burst of distinct events": {
+    "92217 Executable dropped in Windows root folder": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -304,29 +282,18 @@
       },
       "severity": "low"
     },
-    "92200 alert: burst of distinct events": {
+    "92200 Scripting file created under Windows Temp or User folder": {
       "lab": {
         "cards": 0,
         "events": 0
       },
       "host": {
         "cards": 1,
-        "events": 601
+        "events": 611
       },
       "severity": "low"
     },
-    "60702 alert: burst of distinct events": {
-      "lab": {
-        "cards": 0,
-        "events": 0
-      },
-      "host": {
-        "cards": 1,
-        "events": 1
-      },
-      "severity": "low"
-    },
-    "11 alert: burst of distinct events": {
+    "60702 The VSS service is shutting down due to idle timeout.": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -337,18 +304,7 @@
       },
       "severity": "low"
     },
-    "5712 alert: burst of distinct events": {
-      "lab": {
-        "cards": 1,
-        "events": 11
-      },
-      "host": {
-        "cards": 1,
-        "events": 10
-      },
-      "severity": "high"
-    },
-    "554 alert: burst of distinct events": {
+    "11 rule 11": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -359,7 +315,18 @@
       },
       "severity": "low"
     },
-    "553 alert: burst of distinct events": {
+    "554 File added to the system.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "low"
+    },
+    "553 File deleted.": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -370,7 +337,7 @@
       },
       "severity": "medium"
     },
-    "202 alert: burst of distinct events": {
+    "202 Agent event queue is 90% full.": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -381,7 +348,7 @@
       },
       "severity": "medium"
     },
-    "203 alert: burst of distinct events": {
+    "203 Agent event queue is full. Events may be lost.": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -392,7 +359,7 @@
       },
       "severity": "medium"
     },
-    "92043 alert: burst of distinct events": {
+    "92043 Netsh used to add firewall rule": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -403,7 +370,7 @@
       },
       "severity": "high"
     },
-    "19011 alert: burst of distinct events": {
+    "19011 CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0.: Ensure all AppArmor Prof": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -414,7 +381,7 @@
       },
       "severity": "medium"
     },
-    "204 alert: burst of distinct events": {
+    "204 Agent event queue is flooded. Check the agent configuration.": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -425,7 +392,7 @@
       },
       "severity": "high"
     },
-    "19007 alert: burst of distinct events": {
+    "19007 Center for Internet Security Debian Linux 12 Benchmark v1.1.0: Ensure ": {
       "lab": {
         "cards": 1,
         "events": 88
@@ -436,7 +403,7 @@
       },
       "severity": "medium"
     },
-    "19004 alert: burst of distinct events": {
+    "19004 SCA summary: Center for Internet Security Debian Linux 12 Benchmark v1": {
       "lab": {
         "cards": 1,
         "events": 1
@@ -447,18 +414,7 @@
       },
       "severity": "medium"
     },
-    "550 alert: burst of distinct events": {
-      "lab": {
-        "cards": 1,
-        "events": 4
-      },
-      "host": {
-        "cards": 0,
-        "events": 0
-      },
-      "severity": "medium"
-    },
-    "31103 alert: burst of distinct events": {
+    "31103 SQL injection attempt.": {
       "lab": {
         "cards": 1,
         "events": 29
@@ -469,7 +425,7 @@
       },
       "severity": "medium"
     },
-    "31105 alert: burst of distinct events": {
+    "31105 XSS": {
       "lab": {
         "cards": 1,
         "events": 29
@@ -480,7 +436,7 @@
       },
       "severity": "low"
     },
-    "31104 alert: burst of distinct events": {
+    "31104 Common web attack.": {
       "lab": {
         "cards": 1,
         "events": 29
@@ -491,7 +447,7 @@
       },
       "severity": "low"
     },
-    "31101 alert: burst of distinct events": {
+    "31101 Web server 400 error code.": {
       "lab": {
         "cards": 1,
         "events": 61
@@ -502,7 +458,7 @@
       },
       "severity": "medium"
     },
-    "31151 alert: burst of distinct events": {
+    "31151 Multiple web server 400 error codes from same source ip.": {
       "lab": {
         "cards": 1,
         "events": 3
@@ -513,7 +469,7 @@
       },
       "severity": "high"
     },
-    "31152 alert: burst of distinct events": {
+    "31152 Multiple SQL injection attempts from same source ip.": {
       "lab": {
         "cards": 1,
         "events": 3
@@ -524,7 +480,7 @@
       },
       "severity": "high"
     },
-    "31154 alert: burst of distinct events": {
+    "31154 Multiple XSS": {
       "lab": {
         "cards": 1,
         "events": 3
@@ -535,7 +491,7 @@
       },
       "severity": "high"
     },
-    "31153 alert: burst of distinct events": {
+    "31153 Multiple common web attacks from same source ip.": {
       "lab": {
         "cards": 1,
         "events": 3
@@ -546,7 +502,7 @@
       },
       "severity": "high"
     },
-    "5503 alert: burst of distinct events": {
+    "5503 PAM: User login failed.": {
       "lab": {
         "cards": 1,
         "events": 194
@@ -557,7 +513,7 @@
       },
       "severity": "low"
     },
-    "5551 alert: burst of distinct events": {
+    "5551 PAM: Multiple failed logins in a small period of time.": {
       "lab": {
         "cards": 1,
         "events": 26
@@ -568,7 +524,7 @@
       },
       "severity": "high"
     },
-    "92078 alert: burst of distinct events": {
+    "92078 Cmd.exe executed from non-standard directory, may be related to link e": {
       "lab": {
         "cards": 0,
         "events": 0
@@ -580,28 +536,39 @@
       "severity": "high"
     }
   },
-  "cards": 151,
-  "pushesAfterQuietFirstRun": 18,
+  "cards": 57,
+  "pushesAfterQuietFirstRun": 20,
   "lab": {
     "cards": 15,
     "events": 913,
-    "sshCards": [],
+    "sshCards": [
+      {
+        "title": "sshd: Attempt to login using a non-existent user",
+        "count": 429,
+        "samples": 5
+      },
+      {
+        "title": "sshd: brute force trying to get access to the system. Non existent user.",
+        "count": 11,
+        "samples": 5
+      }
+    ],
     "flaggedCards": [
       {
-        "title": "alert: burst of distinct events",
+        "title": "Center for Internet Security Debian Linux 12 Benchmark v1.1.0: Ensure accounts in /etc/passwd use shadowed passwords.",
         "flags": [
           "data.sca.check.remediation: prompt delimiter"
         ]
       },
       {
-        "title": "alert: burst of distinct events",
+        "title": "Web server 400 error code.",
         "flags": [
           "full_log: instruction override, verdict steering",
           "full_log: verdict steering"
         ]
       },
       {
-        "title": "alert: burst of distinct events",
+        "title": "Multiple web server 400 error codes from same source ip.",
         "flags": [
           "previous_output: instruction override, verdict steering",
           "full_log: verdict steering"
@@ -610,15 +577,15 @@
     ]
   },
   "hostTraffic": {
-    "cards": 136,
-    "events": 48113,
-    "distinctSources": 98
+    "cards": 42,
+    "events": 48960,
+    "distinctSources": 15
   },
   "restart": {
-    "eventsBefore": 49026,
-    "eventsAfter": 49030,
-    "newSinceRestart": 4,
-    "arrivedAfterCursor": 4,
+    "eventsBefore": 49873,
+    "eventsAfter": 49873,
+    "newSinceRestart": 0,
+    "arrivedAfterCursor": 0,
     "duplicates": 0
   }
 }
