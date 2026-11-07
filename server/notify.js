@@ -215,7 +215,9 @@ class Notifier extends EventEmitter {
       const msgId = crypto.randomUUID();
       const ids = digest ? msg.items : [item.id];
       const ins = this.db.prepare('INSERT INTO notifications(ts, channel, msg, item_id, severity, ok, digest) VALUES(?, ?, ?, ?, ?, 1, ?)');
-      for (const id of ids) ins.run(now, ch.name, msgId, id, digest ? (this.db.prepare('SELECT severity FROM items WHERE id = ?').get(id) || {}).severity || msg.severity : msg.severity, digest ? 1 : 0);
+      // K7d: record each item's page severity (as route compares it), never the board severity
+      const sevOf = (id) => { const it = (Array.isArray(item) ? item : [item]).find((i) => i && i.id === id); return it ? pageSev(it) : msg.severity; };
+      for (const id of ids) ins.run(now, ch.name, msgId, id, digest ? sevOf(id) : msg.severity, digest ? 1 : 0);
       if (!ids.length) ins.run(now, ch.name, msgId, null, msg.severity, digest ? 1 : 0);
       return true;
     } catch (e) {
