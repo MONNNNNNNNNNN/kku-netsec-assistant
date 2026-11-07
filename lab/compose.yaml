@@ -78,6 +78,20 @@ services:
         ipv4_address: 172.30.77.80
     user: "${LAB_UID:-1000}:${LAB_GID:-1000}"
 
+  # sshd + nginx + Wazuh agent, enrolled to this VM's Wazuh manager (lab/wazuh-prepare.sh first)
+  victim:
+    build:
+      context: ./victim
+      args:
+        WAZUH_VERSION: ${WAZUH_VERSION:-}
+    profiles: [wazuh]
+    hostname: lab-victim
+    environment:
+      AGENT_NAME: lab-victim
+    networks:
+      lab:
+        ipv4_address: 172.30.77.50
+
 configs:
   strip:
     content: |

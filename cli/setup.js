@@ -15,6 +15,7 @@
  *
  * Non-interactive (install.sh --non-interactive, CI): every answer comes from NETSEC_SETUP_*:
  *   LANG PORT LISTEN  SYSLOG_ALLOW SYSLOG_UDP  WAZUH_URL WAZUH_USER WAZUH_PASSWORD
+ *   WAZUH_CA ZABBIX_CA (CA files for https with a private CA)
  *   ZABBIX_URL ZABBIX_TOKEN  BACKUP_DIR  NOTIFY (ntfy|telegram|line|webhook|none)
  *   NTFY_URL NTFY_TOPIC NTFY_TOKEN  TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID  LINE_TOKEN LINE_TO
  *   WEBHOOK_URL WEBHOOK_SECRET  LLM_URL LLM_MODEL  ADMIN_USER ADMIN_PASSWORD  STRICT (1: a failed test exits 1)
@@ -125,6 +126,14 @@ async function setup(opts) {
   const ask = (key, q, o = {}) => P.ask(q, { ...o, key });
   const yes = (v) => /^(y|yes|1|true|on)$/i.test(String(v));
   const failed = [];
+  // https with a private CA: ask for the CA file (Enter = the system CAs); a readable well-known
+  // path is offered as the default. Found when testing against a real Wazuh 4.x indexer.
+  const caQuestion = async (key, q, current, candidates) => {
+    const def = current || candidates.find((c) => { try { fs.accessSync(c, fs.constants.R_OK); return true; } catch { return false; } }) || '';
+    const v = await ask(key, `${q} (Enter = ${def || 'system CAs'})`, { def });
+    if (v && !fs.existsSync(path.resolve(dir, v))) { out.write(`  FAIL  CA file not found: ${v}\n`); failed.push(`${key} file`); }
+    return v;
+  };
   // interactive: a failed test asks retry / keep / skip; non-interactive keeps (STRICT=1 exits)
   const tested = async (label, fn, retry) => {
     for (;;) {
@@ -164,6 +173,7 @@ async function setup(opts) {
   if (wzUrl) {
     wz.url = wzUrl;
     wz.username = await ask('WAZUH_USER', 'Indexer user', { def: wz.username || 'netsec_board_ro' });
+    if (/^https:/i.test(wz.url)) wz.caFile = await caQuestion('WAZUH_CA', 'Indexer CA file (Wazuh installs use a self-signed CA)', wz.caFile, ['/etc/netsec-board/wazuh-root-ca.pem', '/etc/wazuh-indexer/certs/root-ca.pem']);
     const pw = await ask('WAZUH_PASSWORD', 'Indexer password', { def: secrets.NETSEC_WAZUH_PASSWORD || '', secret: true });
     secrets.NETSEC_WAZUH_PASSWORD = pw; wz.password = 'env:NETSEC_WAZUH_PASSWORD';
     const r = await tested('Wazuh indexer', async () => {
@@ -181,6 +191,7 @@ async function setup(opts) {
   const zbUrl = await ask('ZABBIX_URL', 'Zabbix URL (empty = skip)', { def: zb.enabled ? zb.url : '' });
   if (zbUrl) {
     zb.url = zbUrl;
+    if (/^https:/i.test(zb.url)) zb.caFile = await caQuestion('ZABBIX_CA', 'CA file for the Zabbix web server', zb.caFile, []);
     const tok = await ask('ZABBIX_TOKEN', 'Zabbix API token', { def: secrets.NETSEC_ZABBIX_TOKEN || '', secret: true });
     secrets.NETSEC_ZABBIX_TOKEN = tok; zb.token = 'env:NETSEC_ZABBIX_TOKEN';
     const r = await tested('Zabbix API', async () => {
@@ -252,7 +263,7 @@ async function setup(opts) {
       if (c.cls === 'remote') throw new Error('a public endpoint: logs would leave the network (set llm.allowRemote in netsec.json only if that is approved)');
       return c.cls;
     });
-    cfg.llm = r === 'skip' ? null : { url: llmUrl, model, budgetPerHour: 4, autoMinSeverity: 'critical' };
+    cfg.llm = r === 'skip' ? null : { url: llmUrl, model, budgetPerHour: 12, autoMinSeverity: 'critical' };
   } else cfg.llm = null;
 
   // 8. admin (created by the board on first start from the hash)

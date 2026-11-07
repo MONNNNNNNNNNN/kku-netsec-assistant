@@ -155,3 +155,26 @@ test('C2: the GHCR image namespace everywhere is the repository owner, lowercase
   assert.match(read('.github/workflows/image.yml'), /GITHUB_REPOSITORY_OWNER,,/, 'the workflow derives it, no hardcoded copy');
   assert.match(read('README.md'), new RegExp(`raw\\.githubusercontent\\.com/${owner}/kku-netsec-assistant/main/install\\.sh`));
 });
+
+test('R6: setup asks for the indexer CA: a self-signed https Wazuh fails without it and passes with it', async (t) => {
+  const { execFileSync } = require('node:child_process');
+  const https = require('node:https');
+  const dir = tmp();
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', path.join(dir, 'key.pem'), '-out', path.join(dir, 'ca.pem')], { stdio: 'ignore' });
+  } catch { return t.skip('openssl not available'); }
+  const server = https.createServer({ key: fs.readFileSync(path.join(dir, 'key.pem')), cert: fs.readFileSync(path.join(dir, 'ca.pem')) }, (req, res) => {
+    if (req.headers.authorization !== `Basic ${Buffer.from('ro:pw-123').toString('base64')}`) { res.writeHead(401); return res.end('{}'); }
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ hits: { total: { value: 42 }, hits: [] } }));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `https://127.0.0.1:${server.address().port}`;
+  const env = { NETSEC_SETUP_WAZUH_URL: url, NETSEC_SETUP_WAZUH_USER: 'ro', NETSEC_SETUP_WAZUH_PASSWORD: 'pw-123', NETSEC_SETUP_NOTIFY: 'none' };
+  try {
+    const without = await run(['setup', '--config', path.join(dir, 'a', 'netsec.json'), '--non-interactive'], env);
+    assert.match(without.stdout, /FAIL {2}Wazuh indexer: .*(certificate|self.signed)/i);
+    const withCa = await run(['setup', '--config', path.join(dir, 'b', 'netsec.json'), '--non-interactive'], { ...env, NETSEC_SETUP_WAZUH_CA: path.join(dir, 'ca.pem') });
+    assert.match(withCa.stdout, /ok {4}Wazuh indexer: 42 alert\(s\)/, withCa.stdout);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'b', 'netsec.json'), 'utf8')).sources.wazuh.caFile, path.join(dir, 'ca.pem'));
+  } finally { server.close(); }
+});

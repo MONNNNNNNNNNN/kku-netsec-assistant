@@ -320,8 +320,11 @@ test('P3: the repository holds no real e-mail, KKU host, public IP or non-norepl
   // a single-digit first octet is a version number (or 8.8.8.8, the tests' "public endpoint")
   const OK_IP = /^(10|127|0|255)\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^192\.0\.2\.|^198\.51\.100\.|^203\.0\.113\.|^169\.254\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./; // private, documentation, CGNAT
   const bad = [];
+  // public datasets used as-is by decision (CC0 1.0, provenance in the file): not data from our systems
+  const PUBLIC_DATASET = /^test\/fixtures\/real\/botsv1-/;
   for (const f of files) {
     const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    if (PUBLIC_DATASET.test(f)) { assert.match(text, /CC0 1\.0/, `${f} must state its license`); continue; }
     for (const m of text.match(/[\w.%+-]+@[\w-]+(\.[\w-]+)+/g) || []) if (!OK_MAIL.test(m) && !/^[\w-]+@\d/.test(m) && !/@(types|playwright|v\d)/.test(m)) bad.push(`${f}: e-mail ${m}`);
     for (const m of text.match(/\b[a-z0-9-]+(\.[a-z0-9-]+)*\.kku\.ac\.th\b/gi) || []) if (!/(^|\.)example\.kku\.ac\.th$/i.test(m)) bad.push(`${f}: host ${m}`);
     for (const m of text.match(/\b(\d{1,3}\.){3}\d{1,3}\b/g) || []) if (!OK_IP.test(m) && m.split('.').every((o) => Number(o) <= 255) && !/^\d\./.test(m)) bad.push(`${f}: IP ${m}`);

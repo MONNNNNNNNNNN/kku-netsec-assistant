@@ -1,7 +1,7 @@
 'use strict';
 /*
- * LLM triage queue. The board works fully without it. On CPU a 3B model needs minutes per
- * call (results/inject-eval-qwen2.5-3b-instruct.md), so:
+ * LLM triage queue. The board works fully without it. On CPU a 3B model needs about 20-25 s per
+ * card (qwen2.5:3b-instruct, 4 ARM cores, measured in lab/x5-llm.js), so:
  *  - "Explain" on a card queues it first (on demand);
  *  - new items at or above autoMinSeverity are queued automatically;
  *  - at most budgetPerHour calls per rolling hour (counted from llm_audit, so restarts do
@@ -23,7 +23,10 @@ class LlmQueue extends EventEmitter {
     super();
     this.db = db; this.pipeline = pipeline; this.now = now; this.chat = chat; this.lang = lang;
     // automatic triage only for critical by default: on CPU the hourly budget is better spent on "Explain"
-    this.cfg = { budgetPerHour: 4, queueMax: 20, autoMinSeverity: 'critical', batch: 5, timeoutMs: 1800000, maxTokens: 1200, ...(cfg || {}) };
+    // batch 1 by default: measured with qwen2.5:3b-instruct on 4 ARM cores (lab/x5-llm.js), batches of
+    // 5 got a real verdict for only 4 of 11 cards (85 s per call) while single cards got 11 of 11
+    // (23 s per call). 12 calls/hour is about 5 CPU-minutes per hour.
+    this.cfg = { budgetPerHour: 12, queueMax: 20, autoMinSeverity: 'critical', batch: 1, timeoutMs: 1800000, maxTokens: 1200, ...(cfg || {}) };
     this.enabled = !!(cfg && cfg.url && cfg.model && cfg.enabled !== false);
     this.queue = []; this.running = false; this.timer = null; this.lastError = null;
   }
