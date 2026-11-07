@@ -107,9 +107,11 @@ async function timeline() {
   const sent = { ntfy: 0, line: 0 };
   const senders = { ntfy: async () => { sent.ntfy++; }, line: async () => { sent.line++; } };
   const notifier = new Notifier({ db, cfg, now, senders });
-  pipeline.on('change', (c) => notifier.consider(c));
+  // as main.js: correlation raises are board notes only; K4 idle resolves and S1 re-opens go through consider
+  let autoResolved = 0, reopened = 0;
+  pipeline.on('change', (c) => { if (c.idle) autoResolved++; if (c.reopened) reopened++; if (!c.correlated) notifier.consider(c); });
   const perDay = {};
-  let lastFlush = 0, lastDigest = 0, first = null, last = 0, n = 0;
+  let lastFlush = 0, lastDigest = 0, lastIdle = 0, first = null, last = 0, n = 0;
   const lineCh = notifier.channels.find((c) => c.name === 'line');
   // order by event time across the three files (they are sorted newest-first in the export)
   const all = [];
@@ -131,12 +133,13 @@ async function timeline() {
     e.ts = t;
     pipeline.ingest(e, 'syslog');
     if (t - lastFlush >= 200) { pipeline.flush(); lastFlush = t; }
+    if (t - lastIdle >= 600000) { pipeline.flush(); pipeline.resolveIdle(); lastIdle = t; } // the 10-min K4 sweep
     if (t - lastDigest >= lineCh.digestEveryMinutes * 60000) { pipeline.flush(); await notifier.flushDigest(lineCh); lastDigest = t; }
   }
   pipeline.flush();
   await notifier.idle();
   await notifier.flushDigest(lineCh);
-  const items = db.prepare('SELECT severity, count, trusted, first_seen FROM items').all();
+  const items = db.prepare('SELECT severity, count, trusted, first_seen, resolved_at FROM items').all();
   const filtered = db_.sourceState(db, 'syslog').filtered;
   for (const it of items) { const d = new Date(it.first_seen).toISOString().slice(0, 10); if (perDay[d]) perDay[d].newCards = (perDay[d].newCards || 0) + 1; }
   const out = {
@@ -145,6 +148,7 @@ async function timeline() {
     cardsBySeverity: items.reduce((a, i) => (inc(a, i.severity), a), {}),
     eventsInCards: items.reduce((a, i) => a + i.count, 0),
     pushes: sent.ntfy, lineMessages: sent.line,
+    openAtEnd: items.filter((i) => i.resolved_at == null).length, autoResolved, reopened,
     busiestDays: Object.entries(perDay).sort((a, b) => b[1].events - a[1].events).slice(0, 5).map(([d, v]) => ({ day: d, events: v.events, newCards: v.newCards || 0 })),
   };
   db.close();

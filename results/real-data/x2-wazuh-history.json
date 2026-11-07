@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-11-07T07:50:40.842Z",
+  "ranAt": "2026-11-07T09:05:58.831Z",
   "lookback": "24h",
   "setup": [
     "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*"
@@ -7,26 +7,26 @@
   "setupNote": null,
   "completenessBounds": {
     "level4plus": [
-      49834,
-      49873
+      55135,
+      55201
     ],
     "all": [
-      58800,
-      58839
+      64634,
+      64700
     ],
     "boardReceivedWithin": true,
     "boardFetchedWithin": true
   },
   "completeness": {
     "from": "2026-10-15T00:00:00+07:00",
-    "indexerLevel4plus": 49834,
-    "indexerAll": 58800,
-    "boardFetched": 58839,
-    "boardReceived": 49873,
-    "boardFiltered": 8966,
-    "runs": 12,
-    "firstPullMs": 24052,
-    "alertsPerSec": 2446
+    "indexerLevel4plus": 55135,
+    "indexerAll": 64634,
+    "boardFetched": 64700,
+    "boardReceived": 55201,
+    "boardFiltered": 9499,
+    "runs": 13,
+    "firstPullMs": 27047,
+    "alertsPerSec": 2391
   },
   "cardsByRule": {
     "5710 sshd: Attempt to login using a non-existent user": {
@@ -36,7 +36,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 4658
+        "events": 4782
       },
       "severity": "low"
     },
@@ -47,7 +47,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 446
+        "events": 460
       },
       "severity": "low"
     },
@@ -58,7 +58,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 65
+        "events": 66
       },
       "severity": "low"
     },
@@ -135,7 +135,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 35708
+        "events": 39520
       },
       "severity": "medium"
     },
@@ -146,7 +146,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 12
+        "events": 26
       },
       "severity": "low"
     },
@@ -157,7 +157,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 3
+        "events": 5
       },
       "severity": "high"
     },
@@ -168,7 +168,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 69
+        "events": 107
       },
       "severity": "low"
     },
@@ -179,7 +179,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 21
+        "events": 35
       },
       "severity": "medium"
     },
@@ -190,7 +190,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 5104
+        "events": 5648
       },
       "severity": "high"
     },
@@ -201,7 +201,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 8
+        "events": 20
       },
       "severity": "low"
     },
@@ -212,7 +212,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 6
+        "events": 10
       },
       "severity": "low"
     },
@@ -223,7 +223,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 3
+        "events": 5
       },
       "severity": "medium"
     },
@@ -234,7 +234,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 5
+        "events": 11
       },
       "severity": "low"
     },
@@ -245,7 +245,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 557
+        "events": 834
       },
       "severity": "high"
     },
@@ -256,7 +256,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 3
+        "events": 10
       },
       "severity": "low"
     },
@@ -267,7 +267,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 46
+        "events": 467
       },
       "severity": "critical"
     },
@@ -289,7 +289,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 611
+        "events": 635
       },
       "severity": "low"
     },
@@ -311,7 +311,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 1
+        "events": 2
       },
       "severity": "low"
     },
@@ -366,7 +366,7 @@
       },
       "host": {
         "cards": 1,
-        "events": 1
+        "events": 3
       },
       "severity": "high"
     },
@@ -531,12 +531,34 @@
       },
       "host": {
         "cards": 1,
+        "events": 3
+      },
+      "severity": "high"
+    },
+    "92041 Value added to registry key has Base64-like pattern": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 6
+      },
+      "severity": "high"
+    },
+    "92207 Executable file dropped in Users\\Public folder": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
         "events": 1
       },
       "severity": "high"
     }
   },
-  "cards": 57,
+  "cards": 59,
   "pushesAfterQuietFirstRun": 20,
   "lab": {
     "cards": 15,
@@ -577,13 +599,13 @@
     ]
   },
   "hostTraffic": {
-    "cards": 42,
-    "events": 48960,
-    "distinctSources": 15
+    "cards": 44,
+    "events": 54288,
+    "distinctSources": 14
   },
   "restart": {
-    "eventsBefore": 49873,
-    "eventsAfter": 49873,
+    "eventsBefore": 55201,
+    "eventsAfter": 55201,
     "newSinceRestart": 0,
     "arrivedAfterCursor": 0,
     "duplicates": 0

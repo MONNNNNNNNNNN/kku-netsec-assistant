@@ -129,7 +129,7 @@ async function setup(opts) {
   // https with a private CA: ask for the CA file (Enter = the system CAs); a readable well-known
   // path is offered as the default. Found when testing against a real Wazuh 4.x indexer.
   const caQuestion = async (key, q, current, candidates) => {
-    const def = current || candidates.find((c) => { try { fs.accessSync(c, fs.constants.R_OK); return true; } catch { return false; } }) || '';
+    const def = current || candidates.find((c) => { try { fs.accessSync(path.resolve(dir, c), fs.constants.R_OK); return true; } catch { return false; } }) || '';
     const v = await ask(key, `${q} (Enter = ${def || 'system CAs'})`, { def });
     if (v && !fs.existsSync(path.resolve(dir, v))) { out.write(`  FAIL  CA file not found: ${v}\n`); failed.push(`${key} file`); }
     return v;
@@ -173,7 +173,7 @@ async function setup(opts) {
   if (wzUrl) {
     wz.url = wzUrl;
     wz.username = await ask('WAZUH_USER', 'Indexer user', { def: wz.username || 'netsec_board_ro' });
-    if (/^https:/i.test(wz.url)) wz.caFile = await caQuestion('WAZUH_CA', 'Indexer CA file (Wazuh installs use a self-signed CA)', wz.caFile, ['/etc/netsec-board/wazuh-root-ca.pem', '/etc/wazuh-indexer/certs/root-ca.pem']);
+    if (/^https:/i.test(wz.url)) wz.caFile = await caQuestion('WAZUH_CA', 'Indexer CA file (Wazuh installs use a self-signed CA)', wz.caFile, opts.docker ? ['certs/wazuh-root-ca.pem'] : ['certs/wazuh-root-ca.pem', '/etc/netsec-board/wazuh-root-ca.pem', '/etc/wazuh-indexer/certs/root-ca.pem']);
     const pw = await ask('WAZUH_PASSWORD', 'Indexer password', { def: secrets.NETSEC_WAZUH_PASSWORD || '', secret: true });
     secrets.NETSEC_WAZUH_PASSWORD = pw; wz.password = 'env:NETSEC_WAZUH_PASSWORD';
     const r = await tested('Wazuh indexer', async () => {

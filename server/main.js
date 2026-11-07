@@ -148,7 +148,7 @@ async function createApp(loaded, opts = {}) {
     // K7: an LLM escalation pages only when the device-derived severity is already medium or more;
     // otherwise an attacker who talks the model into "malicious" on a low event could page the NOC
     else if (c.escalated) {
-      if (sevRank(c.item.detSeverity) >= sevRank('medium')) app.notifier.consider({ ...c, isNew: false });
+      if (sevRank(c.item.devSeverity) >= sevRank('medium')) app.notifier.consider({ ...c, isNew: false });
       else app.notifier.boardNote({ ...c, isNew: false });
     }
   });

@@ -47,6 +47,8 @@ function finish(e) {
   e.untrusted = capFields(e.untrusted);
   e.flags = [...flagsOf(e.untrusted), ...(e.extraFlags || [])];
   delete e.extraFlags;
+  // devSeverity: what the device said, before the injection floor (K7: the LLM pages only from medium+ here)
+  e.devSeverity = e.detSeverity;
   if (e.flags.length) e.detSeverity = maxSev(e.detSeverity, 'medium');
   e.floor = sevRank(e.detSeverity) >= sevRank('medium') ? [`${e.source} severity ${e.detSeverity}`] : [];
   if (e.link && !/^https?:\/\//i.test(e.link)) e.link = null;

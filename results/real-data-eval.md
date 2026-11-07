@@ -20,9 +20,9 @@ BOTSv1 SHA-256: `fgt_event.json.gz` 67d6a46f…c1a1, `fgt_utm.json.gz` 56b3830f�
 | # | Experiment | Result |
 |---|---|---|
 | X1 | 510,899 real FortiGate lines through the parser and trust split | 100% parsed with device IDs; 0 lines with repeated keys; 0 injection flags on benign traffic (851 before fix R1) |
-| X1 | The same lines replayed on their real 28-day timeline (pipeline clock = event time) | 494,773 below "low" filtered; **145 cards** (127 critical, 6 high, 10 medium, 2 low); 1 burst card; **31 pushes and 3 LINE digests in 28 days** |
-| X1 | TCP syslog intake (octet-counted) | **5,334 lines/s** end to end |
-| X2 | Wazuh pull over real history (15 Oct onward, live alerts still arriving) | after a pull and the next scheduled pull, received **49,873** at level ≥ 4: everything up to the start (49,834) and exactly what the indexer held at the end (49,873); after a restart only alerts that arrived after the cursor are new (**0 duplicates**); 2,446 alerts/s; **57 cards** (151 before K3) ([x2-wazuh-history.json](real-data/x2-wazuh-history.json)) |
+| X1 | The same lines replayed on their real 28-day timeline (pipeline clock = event time) | 494,773 below "low" filtered; **145 cards** (127 critical, 6 high, 10 medium, 2 low); 1 burst card; **31 pushes and 3 LINE digests in 28 days**; with the K4 sweep every 10 min of event time: 10 idle low/medium cards closed, 0 re-opened, the 135 still open are high/critical (never auto-closed) |
+| X1 | TCP syslog intake (octet-counted) | **5,423 lines/s** end to end |
+| X2 | Wazuh pull over real history (15 Oct onward, live alerts still arriving) | after a pull and the next scheduled pull, received **55,201** at level ≥ 4: everything up to the start (55,135) and exactly what the indexer held at the end (55,201); after a restart only alerts that arrived after the cursor are new (**0 duplicates**); 2,391 alerts/s; **59 cards** (151 before K3; 57 on the same window three hours earlier, the 2 new cards are rules that fired since), 20 pushes ([x2-wazuh-history.json](real-data/x2-wazuh-history.json)) |
 | X2 | Wazuh pull over the lab window ([x2-wazuh-lab.json](real-data/x2-wazuh-lab.json)) | complete within the same bounds (3,390 to 3,409, received 3,409); SSH attempts with random usernames = **1 card with 5 username samples**; brute-force rule 5712 = 1 card; prompt-injection User-Agents flagged |
 | X2 | Live pull latency (schedule 15 s) | alert → card **median 13.0 s** (8.7–18.7 s), including Filebeat's shipping delay |
 | X2 | This host's real internet traffic (lab window) | before K3: 804 alerts → 22 cards from 18 sources; after K3: 2,987 alerts (the window kept growing) → **10 cards**, internet SSH scanning = 1 card |
@@ -50,10 +50,36 @@ BOTSv1 SHA-256: `fgt_event.json.gz` 67d6a46f…c1a1, `fgt_utm.json.gz` 56b3830f�
 | K1 | scoring review | An acknowledged card of an event that never resolves (FortiGate, Wazuh) stayed silent forever: repeats keep the ack | a repeat after 24 h of quiet re-arms the card (`board.rearmAfterHours`) | silent forever → notified again |
 | K2 | scoring review | Operators could not tune severity per rule (e.g. FortiOS logs every config change as `alert` → critical) | `severityOverrides`, matched on device-generated fields only; a flagged event stays ≥ medium; `check` validates | n/a |
 | K3 | real screenshot | Internet SSH scanning (Wazuh 5710, low) made one card per attacker IP | low alerts group per rule and agent, IPs kept as samples; medium+ stay per source (`perSourceCardsFrom`) | real 3 weeks: 151 → 57 cards; host SSH scanning 22 → 1 card |
+| K4 | scoring rubric (lifecycle) | Events that never send a resolve (FortiGate, syslog, Wazuh, generic) kept their card open forever | a sweep every 10 min closes idle cards (`board.autoResolveAfterHours`, default low/info 24 h, medium 72 h); high and critical never; pinned, snoozed, Zabbix and config cards stay; a recurrence re-opens and notifies | X1 28 days: 10 idle cards closed, 0 re-opened |
+| K4b | scrutiny pass 2 | The sweep closed actively snoozed cards: a repeat then re-opened the card, cleared the snooze and notified inside it | the sweep skips a card while its snooze is active | n/a |
+| K5 | scoring rubric (asset context) | Overrides could only set a fixed severity; no "this is a core server / server VLAN" context | an override may `raise` 1-4 levels (adds up, capped at critical) and match `cidr:` on trusted IP fields | n/a |
+| K6 | scoring rubric (correlation) | FortiGate and Wazuh saw the same attacker as two unrelated cards | the same source IP within 1 h in FortiGate (trusted `srcip`) and Wazuh tags both cards `correlated` and raises one level, capped at high; never pages by itself | covered by a test; **neither real dataset pairs FortiGate with Wazuh**, so not measured on real data |
+| K7 | scoring rubric (abuse resistance) | An LLM verdict could page from a low card: an attacker who talks the model into "malicious" pages the NOC | an AI escalation pages only when the device severity is medium or more; otherwise it is a board note | n/a |
+| K7b | scrutiny pass 4 | K7 checked the severity *after* the injection floor, and that floor makes every flagged card medium: injection text on an info event plus a compliant model could still page at high | the card keeps the device severity (`dev_severity`, after operator overrides, before the floor) and K7 checks that; the floor no longer adds to a K5 raise either | attack path: page → board note |
+| K8 | confidence | An intermittent failure in `npm test` | identified under 3 CPU hogs (46d7e6d: 16 of 19 runs failed F3, 3 of 19 failed F5): F3 slept a fixed time before the final coalesced SSE event; F5 compared absolute login timings. F3 now waits for the final count; F5 asserts the login path never calls `scryptSync` (a spy) with a lenient 0.1× timing bound | under the same load: 16/19 failing → **20/20 passing** |
+| C10 | scrutiny pass 1 | A Docker install could not reach the Wazuh CA (the container sees only its mounts), and a relative `caFile` resolved against the working directory | the installer copies the CA to `certs/` next to `netsec.json` (mounted read-only); a relative `caFile` is relative to `netsec.json`; the wizard offers `certs/wazuh-root-ca.pem` | Docker: fail → ok |
 
 Also found and fixed in the lab tooling itself:
 - Two harness bugs. `spawnSync` froze the in-process board during an attack. A "last N alerts" diagnostic window was hidden by a noisy Windows agent.
 - Two setup details. A Zabbix media type created through the API is disabled by default. Wazuh 4.14's default agent config reads sshd from journald, not `/var/log/auth.log`.
+
+## Scoring rubric (chair, 1 point each)
+
+| # | Criterion | 46d7e6d | now | Where |
+|---|---|---|---|---|
+| 1 | Severity from trusted (device-generated) fields only | 1 | 1 | `server/trust.js` |
+| 2 | Raise-only: the detector and the LLM can only raise | 1 | 1 | `finalSeverity`, `applyVerdict` |
+| 3 | A severity mapping for every source | 1 | 1 | `server/trust.js` per source |
+| 4 | Filter and notify thresholds | 1 | 1 | `minSeverity` per source and channel |
+| 5 | Grouping without per-attacker floods | 1 | 1 | K3, burst cards |
+| 6 | Lifecycle: escalate, re-open, re-arm, **close stale cards** | 0.5 | 1 | S1, K1, K4/K4b |
+| 7 | Operator tuning | 1 | 1 | K2 `severityOverrides` |
+| 8 | Asset context | 0 | 1 | K5 `raise`, `cidr:` |
+| 9 | Cross-source correlation | 0 | 0.5 | K6: works and tested; FortiGate × Wazuh only, by source IP, not measured on real data |
+| 10 | Abuse resistance (no attacker-induced paging) | 0 | 1 | K7, K7b; K6 never pages |
+| | **Total** | **6.5** | **9.5** | |
+
+The earlier "8/10" was a judgement without a rubric; scored against this rubric, 46d7e6d is 6.5. Half a point stays open on correlation: one pair of sources, one key (IP), no real paired data.
 
 ## Limits (what this does not show)
 - **FortiGate**: BOTSv1 is FortiOS 5.x from 2016, not KKU's FortiOS version or device; no real FortiGate sent syslog or answered REST here. Whether current FortiOS escapes quotes inside fields (finding D1) is still unverified.
@@ -61,3 +87,4 @@ Also found and fixed in the lab tooling itself:
 - **Lab bias**: the lab attacks are ours and loud; the live internet traffic is SSH scanning only.
 - **Compressed replays**: card counts from replays that compress time (X2 history) overstate burst cards; the X1 timeline replay uses event time and is the representative figure.
 - **LLM**: one 3B model on one CPU; 11 cards per setting is a small sample.
+- **Correlation**: K6 is tested, not measured: no dataset here has FortiGate and Wazuh watching the same traffic.

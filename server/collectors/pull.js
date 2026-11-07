@@ -32,7 +32,7 @@ function wazuhHint(e) {
   if (/circuit_breaking_exception/.test(m)) e.message = 'Wazuh indexer is out of heap memory (HTTP 429 circuit_breaking_exception), so it refuses every query. Raise -Xms/-Xmx in /etc/wazuh-indexer/jvm.options (half the RAM, at most 32g) and restart wazuh-indexer.';
   else if (/HTTP 401/.test(m)) e.message = `Wazuh indexer refused the user/password (HTTP 401). ${m.slice(0, 120)}`;
   else if (/security_exception|HTTP 403/.test(m)) e.message = 'The indexer user lacks read access to the index pattern (HTTP 403): it needs read + indices:data/read/search on wazuh-alerts-* (lab/wazuh-prepare.sh creates such a role).';
-  else if (/self.signed|unable to verify|UNABLE_TO_VERIFY|certificate/i.test(m)) e.message = `TLS: the indexer certificate is not trusted; set sources.wazuh.caFile (Wazuh's root CA, e.g. /etc/wazuh-indexer/certs/root-ca.pem). ${m.slice(0, 100)}`;
+  else if (/self.signed|unable to verify|UNABLE_TO_VERIFY|certificate/i.test(m)) e.message = `TLS: the indexer certificate is not trusted; copy Wazuh's root CA (/etc/wazuh-indexer/certs/root-ca.pem) to certs/wazuh-root-ca.pem next to netsec.json and set sources.wazuh.caFile to certs/wazuh-root-ca.pem. ${m.slice(0, 100)}`;
   return e;
 }
 

@@ -125,6 +125,8 @@ function loadConfig(file, overrides = {}, env = process.env) {
   const base = file ? path.dirname(path.resolve(file)) : process.cwd();
   merged.dataDir = path.resolve(base, merged.dataDir);
   if (merged.sources.configdrop.dir) merged.sources.configdrop.dir = path.resolve(base, merged.sources.configdrop.dir);
+  // a relative CA file (e.g. certs/wazuh-root-ca.pem, mounted next to netsec.json in Docker) is relative to the config
+  for (const k of ['wazuh', 'zabbix', 'fortigate']) { const s = merged.sources[k]; if (s && s.caFile) s.caFile = path.resolve(base, s.caFile); }
   return { raw: merged, cfg: resolveAll(merged), file: file ? path.resolve(file) : null, secretsWarning };
 }
 

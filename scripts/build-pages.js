@@ -160,7 +160,7 @@ const MANUAL = [
       ['**เกิดซ้ำ:** การ์ดที่ถูกปิด (resolved) แล้วเกิดอีก จะเปิดใหม่และแจ้งอีกครั้ง', '**Recurrence:** a resolved card that happens again re-opens and notifies again.'],
       ['**ระดับเพิ่มขึ้น:** ถ้าเหตุการณ์ซ้ำมีระดับสูงกว่าเดิม การ acknowledge และ snooze จะถูกล้างและแจ้งใหม่', '**Escalation:** a repeat with a higher severity clears acknowledge and snooze and notifies again.'],
       ['**re-arm:** การ์ดที่ acknowledge แล้วแต่เหตุการณ์กลับมาอีกหลังเงียบไป 24 ชม. จะแจ้งใหม่ (ปรับได้ที่ `board.rearmAfterHours`)', '**Re-arm:** an acknowledged card whose event comes back after 24 h of quiet notifies again (`board.rearmAfterHours`).'],
-      ['**ปิดอัตโนมัติ:** การ์ด low/medium ที่เงียบไปจะถูกปิดเอง (24/72 ชม.) high และ critical ต้องให้คนปิด', '**Auto-close:** quiet low/medium cards close by themselves (24/72 h); high and critical wait for a person.'],
+      ['**ปิดอัตโนมัติ:** การ์ด low/medium ที่เงียบไปจะถูกปิดเอง (24/72 ชม.) high และ critical ต้องให้คนปิด การ์ดที่ปักหมุดหรืออยู่ระหว่าง snooze จะไม่ถูกปิด', '**Auto-close:** quiet low/medium cards close by themselves (24/72 h); high and critical wait for a person. Pinned cards and cards inside a snooze stay open.'],
       ['คีย์ลัด: `j`/`k` เลื่อน, `e` เปิด/ปิด, `p` ปักหมุด, `a` acknowledge, `/` ค้นหา', 'Keys: `j`/`k` move, `e` expand, `p` pin, `a` acknowledge, `/` search.'],
     ]),
   ]),
@@ -177,7 +177,7 @@ const MANUAL = [
     B.p('กด "Explain (AI)" บนการ์ดเพื่อให้โมเดลในเครื่อง (เช่น qwen2.5:3b) อธิบายและแนะนำว่าควรทำอะไร ใช้เวลาประมาณ 23 วินาทีต่อการ์ดบน CPU', 'Press "Explain (AI)" on a card: a local model (e.g. qwen2.5:3b) explains it and suggests an action, in about 23 s per card on a CPU.'),
     B.ul([
       ['AI ทำให้ระดับ**สูงขึ้น**ได้อย่างเดียว ไม่มีทางลดระดับ', 'The AI can only **raise** a card\'s severity, never lower it.'],
-      ['ถ้า AI ยกระดับการ์ดที่เดิมเป็น low/info จะขึ้นบนกระดานเท่านั้น ไม่ส่งแจ้งเตือน (กันผู้โจมตีหลอก AI ให้ปลุกทีมกลางดึก)', 'If the AI raises a card that was low/info, it shows on the board only, with no notification (so an attacker cannot trick the AI into paging the team).'],
+      ['ถ้า AI ยกระดับการ์ดที่อุปกรณ์ให้ระดับ low/info จะขึ้นบนกระดานเท่านั้น ไม่ส่งแจ้งเตือน แม้การ์ดจะเป็น medium เพราะมีข้อความพยายามสั่ง AI ก็ยังนับระดับจากอุปกรณ์ (กันผู้โจมตีหลอก AI ให้ปลุกทีมกลางดึก)', 'If the AI raises a card the device rated low/info, it shows on the board only, with no notification. A card that is medium only because its log tries to instruct the AI still counts as what the device said (so an attacker cannot trick the AI into paging the team).'],
       ['ป้าย "tried to manipulate AI" แปลว่า log มีข้อความพยายามสั่ง AI การ์ดนั้นจะเป็นอย่างน้อย medium และ guard จะไม่ยอมให้ AI ตอบว่าปลอดภัย', 'The "tried to manipulate AI" badge means the log contains text that tries to instruct the AI. Such a card is at least medium, and the guard never lets the AI call it safe.'],
       ['ในการทดสอบจริง โมเดลถูกหลอกให้ตอบ "benign" 1 ใน 4 ครั้ง และ guard แก้กลับทุกครั้ง', 'In real tests the model was fooled into "benign" once in 4 tries, and the guard overrode it every time.'],
     ]),
@@ -211,11 +211,11 @@ const MANUAL = [
     ]),
   ]),
   S('wazuh', 'ติดตั้งและตั้งค่า 3: Wazuh', 'Install and configure 3: Wazuh', [
-    B.p('กระดานอ่านจาก Wazuh indexer (พอร์ต 9200) ด้วย user ที่อ่านได้อย่างเดียว บนเครื่อง Wazuh all-in-one รันในฐานะ root:', 'The board reads the Wazuh indexer (port 9200) with a read-only user. On a Wazuh all-in-one host, as root:'),
-    B.pre('sh lab/wazuh-prepare.sh            # read-only user netsec_board_ro, CA in /etc/netsec-board/\nsh lab/wazuh-heap.sh 4g            # only if the indexer answers HTTP 429 circuit_breaking_exception'),
+    B.p('กระดานอ่านจาก Wazuh indexer (พอร์ต 9200) ด้วย user ที่อ่านได้อย่างเดียว สคริปต์อยู่ใน repo บนเครื่อง Wazuh all-in-one ให้ clone แล้วรันด้วย sudo **ก่อน**ติดตั้งกระดาน:', 'The board reads the Wazuh indexer (port 9200) with a read-only user. The scripts are in the repo: on a Wazuh all-in-one host, clone it and run them with sudo **before** installing the board:'),
+    B.pre('git clone https://github.com/MONNNNNNNNNNN/kku-netsec-assistant && cd kku-netsec-assistant\nsudo sh lab/wazuh-prepare.sh       # read-only user netsec_board_ro; password and CA in /etc/netsec-board/\nsudo sh lab/wazuh-heap.sh 4g       # only if the indexer answers HTTP 429 circuit_breaking_exception'),
     B.ul([
-      ['รหัสผ่านอยู่ใน `/etc/netsec-board/wazuh-ro-password` ใช้ใน config เป็น `file:/etc/netsec-board/wazuh-ro-password`', 'The password is in `/etc/netsec-board/wazuh-ro-password`; reference it as `file:/etc/netsec-board/wazuh-ro-password`.'],
-      ['ตัวช่วยตั้งค่าจะถามไฟล์ CA ของ indexer ให้เอง (Wazuh ใช้ CA ที่ลงนามเอง)', 'The wizard asks for the indexer CA file (Wazuh uses a self-signed CA).'],
+      ['ตัวช่วยตั้งค่าถามรหัสผ่าน (ดูได้ด้วย `sudo cat /etc/netsec-board/wazuh-ro-password`) แล้วเก็บไว้ใน `secrets.env` (0600) ไม่ใช่ใน `netsec.json`', 'The wizard asks for the password (read it with `sudo cat /etc/netsec-board/wazuh-ro-password`) and keeps it in `secrets.env` (0600), not in `netsec.json`.'],
+      ['ตัวติดตั้งคัดลอก CA ของ indexer (Wazuh ใช้ CA ที่ลงนามเอง) ไปที่ `certs/wazuh-root-ca.pem` ข้าง `netsec.json` ถ้าอ่านได้ ตัวช่วยตั้งค่าจะเสนอไฟล์นี้ให้ ใน Docker กระดานเห็นเฉพาะโฟลเดอร์ `certs/` นี้ ถ้าคัดลอกเองให้รัน installer ด้วย sudo หรือ `sudo cp /etc/netsec-board/wazuh-root-ca.pem certs/`', 'The installer copies the indexer CA (Wazuh uses a self-signed CA) to `certs/wazuh-root-ca.pem` next to `netsec.json` when it can read it, and the wizard offers that file. In Docker the board sees only this `certs/` folder; otherwise copy it yourself: `sudo cp /etc/netsec-board/wazuh-root-ca.pem certs/`.'],
       ['เลือก**อย่างใดอย่างหนึ่ง**: pull (ค่าเริ่มต้น) หรือ push ผ่าน integration (`deploy/custom-netsec-board.py`) ถ้าเปิดทั้งสองแบบ เหตุการณ์จะถูกนับซ้ำ (`check` จะเตือน)', 'Use **one of**: pull (default) or push through the integration (`deploy/custom-netsec-board.py`). With both, events count twice (`check` warns).'],
       ['Wazuh ส่ง alert เข้า indexer ผ่าน Filebeat ถ้า Filebeat หยุด กระดานจะไม่เห็น alert ใหม่', 'Alerts reach the indexer through Filebeat: if Filebeat is stopped, the board sees no new alerts.'],
     ]),
@@ -261,8 +261,8 @@ const MANUAL = [
   S('trouble', 'แก้ปัญหา', 'Troubleshooting', [
     B.p('ทุกข้อในตารางนี้เกิดขึ้นจริงระหว่างการทดสอบกับระบบจริง', 'Every row here happened during the tests on real systems.'),
     B.table([['อาการ', 'Symptom'], ['สาเหตุ', 'Cause'], ['วิธีแก้', 'Fix']], [
-      [['Wazuh: "out of heap memory (HTTP 429)"', 'Wazuh: "out of heap memory (HTTP 429)"'], ['heap ของ indexer เล็กเกินไป', 'The indexer heap is too small'], '`sh lab/wazuh-heap.sh 4g` (root)'],
-      [['Wazuh: certificate / self-signed', 'Wazuh: certificate / self-signed'], ['ยังไม่ได้ตั้ง CA', 'No CA configured'], ['ตั้ง `sources.wazuh.caFile` เป็น root CA ของ indexer', 'Set `sources.wazuh.caFile` to the indexer root CA']],
+      [['Wazuh: "out of heap memory (HTTP 429)"', 'Wazuh: "out of heap memory (HTTP 429)"'], ['heap ของ indexer เล็กเกินไป', 'The indexer heap is too small'], '`sudo sh lab/wazuh-heap.sh 4g`'],
+      [['Wazuh: certificate / self-signed', 'Wazuh: certificate / self-signed'], ['ยังไม่ได้ตั้ง CA', 'No CA configured'], ['คัดลอก root CA ของ indexer ไปที่ `certs/wazuh-root-ca.pem` แล้วตั้ง `sources.wazuh.caFile` เป็น `certs/wazuh-root-ca.pem` (relative กับ `netsec.json`)', 'Copy the indexer root CA to `certs/wazuh-root-ca.pem` and set `sources.wazuh.caFile` to `certs/wazuh-root-ca.pem` (relative to `netsec.json`)']],
       [['Wazuh: ไม่มี alert ใหม่', 'Wazuh: no new alerts'], ['Filebeat หยุดทำงาน', 'Filebeat is stopped'], '`systemctl start filebeat` (root)'],
       [['agent ไม่ส่ง sshd', 'An agent sends no sshd events'], ['agent อ่าน journald แต่เครื่องเขียน `/var/log/auth.log`', 'The agent reads journald but the host logs to `/var/log/auth.log`'], ['เพิ่ม localfile ของ `/var/log/auth.log` ใน ossec.conf ของ agent', 'Add a `/var/log/auth.log` localfile to the agent\'s ossec.conf']],
       [['Zabbix: Not authorized', 'Zabbix: Not authorized'], ['web server ตัด header Authorization', 'The web server strips the Authorization header'], ['Apache `CGIPassAuth On` หรือ nginx `fastcgi_param HTTP_AUTHORIZATION $http_authorization;`', 'Apache `CGIPassAuth On`, or nginx `fastcgi_param HTTP_AUTHORIZATION $http_authorization;`']],

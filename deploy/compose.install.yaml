@@ -1,6 +1,7 @@
 # NetSec Board, as installed by install.sh (Docker mode). Prebuilt image, no build step.
 # Files next to this one: netsec.json (setup wizard), secrets.env (0600), .env (BOARD_BIND,
-# BOARD_PORT, SYSLOG_BIND, NETSEC_VERSION), backups/ (FortiGate config backups, read-only).
+# BOARD_PORT, SYSLOG_BIND, NETSEC_VERSION), backups/ (FortiGate config backups, read-only),
+# certs/ (private CA files, e.g. wazuh-root-ca.pem; netsec.json names them as certs/<file>).
 #   update:  docker compose pull && docker compose up -d      (or re-run install.sh)
 #   logs:    docker compose logs -f board
 name: netsec-board
@@ -27,6 +28,7 @@ services:
       - ./netsec.json:/config/netsec.json:ro
       - board-data:/data
       - ./backups:/backups:ro
+      - ./certs:/config/certs:ro
     ports:
       - "${BOARD_BIND:-127.0.0.1}:${BOARD_PORT:-8480}:8480"
       - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/tcp"

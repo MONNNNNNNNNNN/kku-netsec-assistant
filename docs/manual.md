@@ -49,7 +49,7 @@ Severity comes only from fields the device generates. Text an attacker writes in
 - **Recurrence:** a resolved card that happens again re-opens and notifies again.
 - **Escalation:** a repeat with a higher severity clears acknowledge and snooze and notifies again.
 - **Re-arm:** an acknowledged card whose event comes back after 24 h of quiet notifies again (`board.rearmAfterHours`).
-- **Auto-close:** quiet low/medium cards close by themselves (24/72 h); high and critical wait for a person.
+- **Auto-close:** quiet low/medium cards close by themselves (24/72 h); high and critical wait for a person. Pinned cards and cards inside a snooze stay open.
 - Keys: `j`/`k` move, `e` expand, `p` pin, `a` acknowledge, `/` search.
 
 ## 4. Daily use 4: how events are grouped
@@ -65,7 +65,7 @@ Severity comes only from fields the device generates. Text an attacker writes in
 Press "Explain (AI)" on a card: a local model (e.g. qwen2.5:3b) explains it and suggests an action, in about 23 s per card on a CPU.
 
 - The AI can only **raise** a card's severity, never lower it.
-- If the AI raises a card that was low/info, it shows on the board only, with no notification (so an attacker cannot trick the AI into paging the team).
+- If the AI raises a card the device rated low/info, it shows on the board only, with no notification. A card that is medium only because its log tries to instruct the AI still counts as what the device said (so an attacker cannot trick the AI into paging the team).
 - The "tried to manipulate AI" badge means the log contains text that tries to instruct the AI. Such a card is at least medium, and the guard never lets the AI call it safe.
 - In real tests the model was fooled into "benign" once in 4 tries, and the guard overrode it every time.
 
@@ -111,15 +111,16 @@ end
 
 ## 9. Install and configure 3: Wazuh
 
-The board reads the Wazuh indexer (port 9200) with a read-only user. On a Wazuh all-in-one host, as root:
+The board reads the Wazuh indexer (port 9200) with a read-only user. The scripts are in the repo: on a Wazuh all-in-one host, clone it and run them with sudo **before** installing the board:
 
 ```
-sh lab/wazuh-prepare.sh            # read-only user netsec_board_ro, CA in /etc/netsec-board/
-sh lab/wazuh-heap.sh 4g            # only if the indexer answers HTTP 429 circuit_breaking_exception
+git clone https://github.com/MONNNNNNNNNNN/kku-netsec-assistant && cd kku-netsec-assistant
+sudo sh lab/wazuh-prepare.sh       # read-only user netsec_board_ro; password and CA in /etc/netsec-board/
+sudo sh lab/wazuh-heap.sh 4g       # only if the indexer answers HTTP 429 circuit_breaking_exception
 ```
 
-- The password is in `/etc/netsec-board/wazuh-ro-password`; reference it as `file:/etc/netsec-board/wazuh-ro-password`.
-- The wizard asks for the indexer CA file (Wazuh uses a self-signed CA).
+- The wizard asks for the password (read it with `sudo cat /etc/netsec-board/wazuh-ro-password`) and keeps it in `secrets.env` (0600), not in `netsec.json`.
+- The installer copies the indexer CA (Wazuh uses a self-signed CA) to `certs/wazuh-root-ca.pem` next to `netsec.json` when it can read it, and the wizard offers that file. In Docker the board sees only this `certs/` folder; otherwise copy it yourself: `sudo cp /etc/netsec-board/wazuh-root-ca.pem certs/`.
 - Use **one of**: pull (default) or push through the integration (`deploy/custom-netsec-board.py`). With both, events count twice (`check` warns).
 - Alerts reach the indexer through Filebeat: if Filebeat is stopped, the board sees no new alerts.
 
@@ -171,8 +172,8 @@ Every row here happened during the tests on real systems.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Wazuh: "out of heap memory (HTTP 429)" | The indexer heap is too small | `sh lab/wazuh-heap.sh 4g` (root) |
-| Wazuh: certificate / self-signed | No CA configured | Set `sources.wazuh.caFile` to the indexer root CA |
+| Wazuh: "out of heap memory (HTTP 429)" | The indexer heap is too small | `sudo sh lab/wazuh-heap.sh 4g` |
+| Wazuh: certificate / self-signed | No CA configured | Copy the indexer root CA to `certs/wazuh-root-ca.pem` and set `sources.wazuh.caFile` to `certs/wazuh-root-ca.pem` (relative to `netsec.json`) |
 | Wazuh: no new alerts | Filebeat is stopped | `systemctl start filebeat` (root) |
 | An agent sends no sshd events | The agent reads journald but the host logs to `/var/log/auth.log` | Add a `/var/log/auth.log` localfile to the agent's ossec.conf |
 | Zabbix: Not authorized | The web server strips the Authorization header | Apache `CGIPassAuth On`, or nginx `fastcgi_param HTTP_AUTHORIZATION $http_authorization;` |

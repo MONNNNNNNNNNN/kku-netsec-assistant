@@ -39,6 +39,7 @@ services:
       - ./netsec.json:/config/netsec.json:ro
       - board-data:/data
       - ./backups:/backups:ro  # config file-drop folder (sources.configdrop.dir = /backups)
+      - ./certs:/config/certs:ro  # private CA files; netsec.json names them certs/<file>
     ports:
       - "127.0.0.1:8480:8480"
       - "${SYSLOG_BIND:-127.0.0.1}:5514:5514/tcp"

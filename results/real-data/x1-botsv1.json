@@ -10,7 +10,7 @@
     ],
     "fortiosEra": "2016 (FortiOS 5.x, FGT60D)"
   },
-  "ranAt": "2026-11-06T18:03:26.630Z",
+  "ranAt": "2026-11-07T09:01:50.216Z",
   "offline": {
     "lines": {
       "fgt_event": 53422,
@@ -204,6 +204,9 @@
     "eventsInCards": 16126,
     "pushes": 31,
     "lineMessages": 3,
+    "openAtEnd": 135,
+    "autoResolved": 10,
+    "reopened": 0,
     "busiestDays": [
       {
         "day": "2016-08-28",
@@ -234,8 +237,8 @@
   },
   "throughput": {
     "lines": 410899,
-    "ms": 77032,
-    "linesPerSec": 5334,
+    "ms": 75774,
+    "linesPerSec": 5423,
     "received": 16126,
     "filtered": 394773,
     "dropped": 0,

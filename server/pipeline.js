@@ -40,7 +40,7 @@ function toItem(r) {
   if (!r) return null;
   const now = Date.now();
   return {
-    id: r.id, fingerprint: r.fingerprint, source: r.source, kind: r.kind, severity: r.severity, detSeverity: r.det_severity,
+    id: r.id, fingerprint: r.fingerprint, source: r.source, kind: r.kind, severity: r.severity, detSeverity: r.det_severity, devSeverity: r.dev_severity || r.det_severity,
     title: r.title, trusted: JSON.parse(r.trusted), untrusted: JSON.parse(r.untrusted), flags: JSON.parse(r.flags), samples: JSON.parse(r.samples || '[]'),
     count: r.count, firstSeen: r.first_seen, lastSeen: r.last_seen,
     pinnedBy: r.pinned_by, pinnedAt: r.pinned_at, ackedBy: r.acked_by, ackedAt: r.acked_at,
@@ -54,9 +54,9 @@ class Pipeline extends EventEmitter {
     super();
     this.db = db; this.cfg = cfg; this.now = now; this.queue = []; this.batchMs = batchMs; this.timer = null;
     this.sel = db.prepare('SELECT * FROM items WHERE fingerprint = ?');
-    this.ins = db.prepare(`INSERT INTO items(fingerprint, source, kind, severity, det_severity, title, trusted, untrusted, flags, floor, samples, count, first_seen, last_seen, link, resolved_at)
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`);
-    this.upd = db.prepare(`UPDATE items SET count = count + 1, last_seen = ?, det_severity = ?, severity = ?, title = ?, trusted = ?, untrusted = ?, flags = ?, floor = ?, samples = ?, link = ?,
+    this.ins = db.prepare(`INSERT INTO items(fingerprint, source, kind, severity, det_severity, dev_severity, title, trusted, untrusted, flags, floor, samples, count, first_seen, last_seen, link, resolved_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`);
+    this.upd = db.prepare(`UPDATE items SET count = count + 1, last_seen = ?, det_severity = ?, dev_severity = ?, severity = ?, title = ?, trusted = ?, untrusted = ?, flags = ?, floor = ?, samples = ?, link = ?,
       resolved_at = ?, acked_by = ?, acked_at = ?, snoozed_until = ?, snoozed_by = ?, reopened_at = ?, escalated_at = ? WHERE id = ?`);
     this.byId = db.prepare('SELECT * FROM items WHERE id = ?');
     // new cards per source in the last minute (a distributed scan must not become 10,000 cards)
@@ -84,8 +84,11 @@ class Pipeline extends EventEmitter {
       labels.push(o.label);
     }
     if (!labels.length) return e;
-    let sev = SEV[Math.min(SEV.length - 1, sevRank(fixed || e.detSeverity) + raise)];
+    // the base is the device's own severity: attacker text (the injection floor) never adds to a raise
+    const dev = SEV[Math.min(SEV.length - 1, sevRank(fixed || e.devSeverity || e.detSeverity) + raise)];
+    let sev = dev;
     if (e.flags && e.flags.length && sevRank(sev) < sevRank('medium')) sev = 'medium';
+    e.devSeverity = dev;
     e.detSeverity = sev;
     e.floor = sevRank(sev) >= sevRank('medium') ? [`${e.source} severity ${sev} (operator override)`] : [];
     e.trusted = { ...e.trusted, override: labels.join('; ') };
@@ -95,7 +98,8 @@ class Pipeline extends EventEmitter {
   /**
    * K4: close cards of events that never send a resolve (FortiGate, syslog, Wazuh, generic) after
    * a quiet period per severity (board.autoResolveAfterHours; high and critical never: a human
-   * decides). Zabbix and config cards have real resolves; pinned cards stay. A recurrence
+   * decides). Zabbix and config cards have real resolves; pinned cards and an active snooze stay (closing
+   * one would let a repeat re-open it and notify inside the snooze). A recurrence
    * re-opens the card and notifies (the S1 path).
    */
   resolveIdle(now = this.now()) {
@@ -103,7 +107,7 @@ class Pipeline extends EventEmitter {
     const out = [];
     for (const [sev, h] of Object.entries(hours)) {
       if (!SEV.includes(sev) || !(Number(h) > 0) || sevRank(sev) >= sevRank('high')) continue;
-      const rows = this.db.prepare("SELECT id FROM items WHERE resolved_at IS NULL AND pinned_at IS NULL AND severity = ? AND source != 'zabbix' AND kind != 'config' AND last_seen < ?").all(sev, now - Number(h) * 3600000);
+      const rows = this.db.prepare("SELECT id FROM items WHERE resolved_at IS NULL AND pinned_at IS NULL AND severity = ? AND (snoozed_until IS NULL OR snoozed_until <= ?) AND source != 'zabbix' AND kind != 'config' AND last_seen < ?").all(sev, now, now - Number(h) * 3600000);
       for (const r of rows) {
         this.db.prepare('UPDATE items SET resolved_at = ? WHERE id = ?').run(now, r.id);
         const c = { id: r.id, item: toItem(this.byId.get(r.id)), resolved: true, idle: true };
@@ -223,7 +227,7 @@ class Pipeline extends EventEmitter {
     if (!row) {
       if (e.resolve) return null; // a "resolved" for something we never saw
       if (!e.trusted.burst) this.countNew(e.source, now);
-      const r = this.ins.run(e.fingerprint, e.source, e.kind, e.detSeverity, e.detSeverity, e.title, j(e.trusted), j(e.untrusted), j(e.flags), j(e.floor), j(addSample([], e, now)), e.ts || now, Math.max(e.ts || now, now), e.link || null, null);
+      const r = this.ins.run(e.fingerprint, e.source, e.kind, e.detSeverity, e.detSeverity, e.devSeverity || e.detSeverity, e.title, j(e.trusted), j(e.untrusted), j(e.flags), j(e.floor), j(addSample([], e, now)), e.ts || now, Math.max(e.ts || now, now), e.link || null, null);
       return { id: Number(r.lastInsertRowid), isNew: true, escalated: false, resolved: false };
     }
     if (e.resolve) {
@@ -232,6 +236,7 @@ class Pipeline extends EventEmitter {
       return { id: row.id, isNew: false, escalated: false, resolved: true };
     }
     const det = maxSev(row.det_severity, e.detSeverity);
+    const dev = maxSev(row.dev_severity || row.det_severity, e.devSeverity || e.detSeverity);
     const sev = maxSev(row.severity, det);
     const escalated = sevRank(sev) > sevRank(row.severity);
     const reopened = !!row.resolved_at;
@@ -248,7 +253,7 @@ class Pipeline extends EventEmitter {
     const flags = union(JSON.parse(row.flags), e.flags, MAX_FLAGS);
     const floor = union(JSON.parse(row.floor || '[]'), e.floor, MAX_FLAGS);
     const samples = addSample(JSON.parse(row.samples || '[]'), e, now);
-    this.upd.run(now, det, sev, e.title, j(e.trusted), j(e.untrusted), j(flags), j(floor), j(samples), e.link || null, null,
+    this.upd.run(now, det, dev, sev, e.title, j(e.trusted), j(e.untrusted), j(flags), j(floor), j(samples), e.link || null, null,
       keepAck ? row.acked_by : null, keepAck ? row.acked_at : null, keepSnooze ? row.snoozed_until : null, keepSnooze ? row.snoozed_by : null, reopened || rearmed ? now : row.reopened_at, escalated ? now : row.escalated_at, row.id);
     return { id: row.id, isNew: reopened || rearmed, reopened: reopened || rearmed, rearmed, escalated, resolved: false, repeat: true };
   }

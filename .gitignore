@@ -12,6 +12,7 @@ playwright-report/
 secrets.env
 .env
 backups/
+certs/
 *.lock
 lab/botsv1/
 lab/data/

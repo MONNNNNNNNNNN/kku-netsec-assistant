@@ -46,6 +46,13 @@ done
 
 [ "$(uname -s)" = "Linux" ] || die "Linux only (on macOS/Windows use: git clone, then docker compose --profile demo up)"
 have() { command -v "$1" >/dev/null 2>&1; }
+# Wazuh's indexer CA is self-signed: copy it next to netsec.json (the container sees only that folder)
+copy_ca() {
+  [ -f "$DIR/certs/wazuh-root-ca.pem" ] && return 0
+  for c in /etc/netsec-board/wazuh-root-ca.pem /etc/wazuh-indexer/certs/root-ca.pem; do
+    if [ -r "$c" ]; then cp "$c" "$DIR/certs/wazuh-root-ca.pem" && chmod 644 "$DIR/certs/wazuh-root-ca.pem" && say "copied the Wazuh CA from $c to certs/"; return 0; fi
+  done
+}
 IS_ROOT=0; [ "$(id -u)" = "0" ] && IS_ROOT=1
 if [ -z "$DIR" ]; then
   if [ "$IS_ROOT" = 1 ]; then DIR=/opt/netsec-board; else DIR="$HOME/netsec-board"; fi
@@ -109,7 +116,8 @@ if [ "$MODE" = docker ]; then
     fetch "$RAW/deploy/compose.install.yaml" "$DIR/compose.yaml"
     fetch "$RAW/netsec.example.json" "$DIR/netsec.example.json"
   fi
-  mkdir -p "$DIR/backups"
+  mkdir -p "$DIR/backups" "$DIR/certs"
+  copy_ca
   # netsec.json must exist before compose mounts it (else Docker creates a directory in its place)
   [ -f "$DIR/netsec.json" ] || { cp "$DIR/netsec.example.json" "$DIR/netsec.json"; chmod 640 "$DIR/netsec.json"; }
   TAG=$VERSION; [ "$TAG" = main ] && TAG=latest
@@ -183,7 +191,8 @@ else
   [ -f "$NEW/cli/setup.js" ] || die "the download does not look like NetSec Board"
   rm -rf "$DIR/app.old"; [ -d "$DIR/app" ] && mv "$DIR/app" "$DIR/app.old"
   mv "$NEW" "$DIR/app"; rm -rf "$DIR/app.old"
-  mkdir -p "$DIR/backups" "$DIR/data"; chmod 700 "$DIR/data"
+  mkdir -p "$DIR/backups" "$DIR/data" "$DIR/certs"; chmod 700 "$DIR/data"
+  copy_ca
 
   step "setup"
   if [ "$ASK" = 0 ] && configured "$DIR/app/netsec.example.json"; then
