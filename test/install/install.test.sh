@@ -37,6 +37,7 @@ sh /src/install.sh --node --non-interactive --version main --dir /tmp/nb > /tmp/
 test "$before" = "$(sha256sum /tmp/nb/secrets.env)"
 grep -q "configured before" /tmp/rerun.log   # an upgrade does not ask again
 test -f /tmp/nb/data/board.db
+test ! -e /tmp/nb/app/lab/data   # a clone install ships only tracked files, never local state
 echo "node re-run kept secrets and data"
 IN
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/src:ro" -v "$WORK/node.sh:/t.sh:ro" -v "$WORK/login.js:/login.js:ro" node:22.13-bookworm-slim sh /t.sh

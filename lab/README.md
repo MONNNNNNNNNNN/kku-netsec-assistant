@@ -43,4 +43,4 @@ Then:
 ```bash
 docker compose -f lab/compose.yaml --profile wazuh down -v
 ```
-The iptables rules disappear at the next reboot.
+The iptables rules disappear at the next reboot. If you used `--push-hook`, the Wazuh integration stays configured and keeps posting to `127.0.0.1:8480` (harmless when nothing listens, but noisy). As root, restore the backup `/var/ossec/etc/ossec.conf.netsec-bak.<date>` (or delete the `custom-netsec-board.py` `<integration>` block), remove `/var/ossec/integrations/custom-netsec-board.py`, and restart wazuh-manager. Remove `/etc/netsec-board/` when you are done with the board.

@@ -33,6 +33,7 @@ const LOOKBACK = arg('lookback', '24h');
 // --from 2026-10-15T00:00:00+07:00: start the board's cursor there (real history) instead of the
 // initial lookback; the board then pulls forward with its normal code (paging, lag window)
 const FROM = arg('from', null);
+const OUT = path.resolve(ROOT, arg('out', 'results/real-data/x2-wazuh.json'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function indexer(body, what = '_search') {
@@ -73,6 +74,12 @@ async function indexer(body, what = '_search') {
   const windowStart = FROM ? Date.parse(FROM) - 120000 : t0 - (/(\d+)h/.test(LOOKBACK) ? Number(LOOKBACK.match(/(\d+)h/)[1]) * 3600000 : 3600000);
   const idx = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }] } } }, '_count');
   const idxAll = await indexer({ query: { range: { timestamp: { gte: windowStart, lte: t0, format: 'epoch_millis' } } } }, '_count');
+  // live alerts keep arriving during the pull: bound the board between the indexer's count at the
+  // start (t0) and at the end of the pull (the window is open-ended while Filebeat ships)
+  const tEnd = Date.now();
+  const idxEnd = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gte: windowStart, lte: tEnd, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }] } } }, '_count');
+  const idxAllEnd = await indexer({ query: { range: { timestamp: { gte: windowStart, lte: tEnd, format: 'epoch_millis' } } } }, '_count');
+  out.completenessBounds = { level4plus: [idx.count, idxEnd.count], all: [idxAll.count, idxAllEnd.count], boardReceivedWithin: st().received >= idx.count && st().received <= idxEnd.count, boardFetchedWithin: st().received + st().filtered >= idxAll.count && st().received + st().filtered <= idxAllEnd.count };
   out.completeness = { from: FROM, indexerLevel4plus: idx.count, indexerAll: idxAll.count, boardFetched: st().received + st().filtered, boardReceived: st().received, boardFiltered: st().filtered, runs, pullMs: Date.now() - t0, alertsPerSec: Math.round((st().received + st().filtered) / ((Date.now() - t0) / 1000)) };
 
   // 4. cards per rule / agent, without identities
@@ -100,11 +107,14 @@ async function indexer(body, what = '_search') {
 
   // 5. restart: same database, pull again -> nothing counted twice
   const before = app.db.prepare("SELECT SUM(count) AS n FROM items WHERE source = 'wazuh'").get().n;
+  const cursorBefore = JSON.parse(app.db.prepare("SELECT cursor FROM source_state WHERE source = 'wazuh'").get().cursor);
   await app.close();
   app = await createApp(loadConfig(null, cfgOver, {}), { log: () => {}, runOnStart: false });
   await app.scheduler.run('wazuh');
   const after = app.db.prepare("SELECT SUM(count) AS n FROM items WHERE source = 'wazuh'").get().n;
-  out.restart = { eventsBefore: before, eventsAfter: after, newSinceRestart: after - before };
+  // anything new after a restart must be an alert that reached the indexer after the cursor, not a repeat
+  const arrived = await indexer({ query: { bool: { filter: [{ range: { timestamp: { gt: cursorBefore.maxTs, format: 'epoch_millis' } } }, { range: { 'rule.level': { gte: 4 } } }], must_not: [{ ids: { values: (cursorBefore.seen || []).map(([id]) => id) } }] } } }, '_count');
+  out.restart = { eventsBefore: before, eventsAfter: after, newSinceRestart: after - before, arrivedAfterCursor: arrived.count, duplicates: Math.max(0, after - before - arrived.count) };
   await app.close(); sinks.server.close();
 
   // 6. --live N: pull latency with the board's real scheduler (every 15 s) while a short lab attack
@@ -128,6 +138,6 @@ async function indexer(body, what = '_search') {
   }
 
   fs.mkdirSync(path.join(ROOT, 'results/real-data'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'results/real-data/x2-wazuh.json'), `${JSON.stringify(out, null, 2)}\n`);
+  fs.writeFileSync(OUT, `${JSON.stringify(out, null, 2)}\n`);
   console.log(JSON.stringify(out, null, 1));
 })().catch((e) => { console.error('x2:', e.stack || e.message); process.exit(1); });

@@ -1,0 +1,624 @@
+{
+  "ranAt": "2026-11-07T07:38:14.082Z",
+  "lookback": "24h",
+  "setup": [
+    "ok    Wazuh indexer: N alert(s) in wazuh-alerts-*"
+  ],
+  "setupNote": null,
+  "completenessBounds": {
+    "level4plus": [
+      49006,
+      49030
+    ],
+    "all": [
+      57936,
+      57960
+    ],
+    "boardReceivedWithin": true,
+    "boardFetchedWithin": true
+  },
+  "completeness": {
+    "from": "2026-10-15T00:00:00+07:00",
+    "indexerLevel4plus": 49006,
+    "indexerAll": 57936,
+    "boardFetched": 57956,
+    "boardReceived": 49026,
+    "boardFiltered": 8930,
+    "runs": 12,
+    "pullMs": 24641,
+    "alertsPerSec": 2352
+  },
+  "cardsByRule": {
+    "5710 sshd: Attempt to login using a non-existent user": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 76,
+        "events": 2429
+      },
+      "severity": "low"
+    },
+    "5762 sshd: connection reset": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 20,
+        "events": 339
+      },
+      "severity": "low"
+    },
+    "5740 sshd: connection reset by peer": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 65
+      },
+      "severity": "low"
+    },
+    "550 Integrity checksum changed.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 107
+      },
+      "severity": "medium"
+    },
+    "5758 Maximum authentication attempts exceeded.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 3,
+        "events": 42
+      },
+      "severity": "medium"
+    },
+    "2501 syslog: User authentication failure.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 10
+      },
+      "severity": "low"
+    },
+    "5712 sshd: brute force trying to get access to the system. Non existent use": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 4,
+        "events": 10
+      },
+      "severity": "high"
+    },
+    "2904 Dpkg": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 58
+      },
+      "severity": "medium"
+    },
+    "2902 New dpkg": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 34
+      },
+      "severity": "medium"
+    },
+    "60602 Windows application error event.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 35046
+      },
+      "severity": "medium"
+    },
+    "92052 Windows command prompt started by an abnormal process": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 12
+      },
+      "severity": "low"
+    },
+    "92058 Application Compatibility Database launched": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 3
+      },
+      "severity": "high"
+    },
+    "92154 Process loaded taskschd.dll module. May be used to create delayed malw": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 69
+      },
+      "severity": "low"
+    },
+    "92205 Powershell process created an executable file in Windows root folder": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 21
+      },
+      "severity": "medium"
+    },
+    "61061 Multiple Windows error application events.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 5009
+      },
+      "severity": "high"
+    },
+    "61102 Windows System error event": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 8
+      },
+      "severity": "low"
+    },
+    "92152 Printer spooler service loaded a dll file. Possible PrintNightmare exp": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 6
+      },
+      "severity": "low"
+    },
+    "60776 SessionEnv was unavailable to handle a critical notification event.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 3
+      },
+      "severity": "medium"
+    },
+    "60775 SessionEnv was unavailable to handle a notification event.": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 5
+      },
+      "severity": "low"
+    },
+    "92910 Explorer process was accessed by C:\\\\Users\\\\Administrator\\\\AppData\\\\Lo": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 503
+      },
+      "severity": "high"
+    },
+    "61138 New Windows Service Created": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 3
+      },
+      "severity": "low"
+    },
+    "5762 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 104
+      },
+      "severity": "low"
+    },
+    "5710 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 429
+      },
+      "host": {
+        "cards": 1,
+        "events": 2206
+      },
+      "severity": "low"
+    },
+    "92213 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 46
+      },
+      "severity": "critical"
+    },
+    "92217 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1354
+      },
+      "severity": "low"
+    },
+    "92200 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 601
+      },
+      "severity": "low"
+    },
+    "60702 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "low"
+    },
+    "11 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "low"
+    },
+    "5712 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 11
+      },
+      "host": {
+        "cards": 1,
+        "events": 10
+      },
+      "severity": "high"
+    },
+    "554 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "low"
+    },
+    "553 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "medium"
+    },
+    "202 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "medium"
+    },
+    "203 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "medium"
+    },
+    "92043 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "high"
+    },
+    "19011 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "medium"
+    },
+    "204 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "high"
+    },
+    "19007 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 88
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "19004 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 1
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "550 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 4
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31103 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 29
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31105 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 29
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "31104 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 29
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "31101 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 61
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "medium"
+    },
+    "31151 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 3
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31152 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 3
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31154 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 3
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "31153 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 3
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "5503 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 194
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "low"
+    },
+    "5551 alert: burst of distinct events": {
+      "lab": {
+        "cards": 1,
+        "events": 26
+      },
+      "host": {
+        "cards": 0,
+        "events": 0
+      },
+      "severity": "high"
+    },
+    "92078 alert: burst of distinct events": {
+      "lab": {
+        "cards": 0,
+        "events": 0
+      },
+      "host": {
+        "cards": 1,
+        "events": 1
+      },
+      "severity": "high"
+    }
+  },
+  "cards": 151,
+  "pushesAfterQuietFirstRun": 18,
+  "lab": {
+    "cards": 15,
+    "events": 913,
+    "sshCards": [],
+    "flaggedCards": [
+      {
+        "title": "alert: burst of distinct events",
+        "flags": [
+          "data.sca.check.remediation: prompt delimiter"
+        ]
+      },
+      {
+        "title": "alert: burst of distinct events",
+        "flags": [
+          "full_log: instruction override, verdict steering",
+          "full_log: verdict steering"
+        ]
+      },
+      {
+        "title": "alert: burst of distinct events",
+        "flags": [
+          "previous_output: instruction override, verdict steering",
+          "full_log: verdict steering"
+        ]
+      }
+    ]
+  },
+  "hostTraffic": {
+    "cards": 136,
+    "events": 48113,
+    "distinctSources": 98
+  },
+  "restart": {
+    "eventsBefore": 49026,
+    "eventsAfter": 49030,
+    "newSinceRestart": 4,
+    "arrivedAfterCursor": 4,
+    "duplicates": 0
+  }
+}

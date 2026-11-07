@@ -60,7 +60,7 @@ Schedules are cron expressions in Asia/Bangkok time (`*/2 * * * *`, `@every 30s`
 
 | Integration | Tested against | Result |
 |---|---|---|
-| Wazuh pull | Wazuh 4.14.9 indexer, 1.37 M real alerts | board fetched exactly what the indexer holds (37,843 / 37,843); 0 duplicates after restart; live alert → card 13 s at a 15 s schedule |
+| Wazuh pull | Wazuh 4.14.9 indexer, 1.37 M real alerts | every alert fetched (49,026 within the indexer's 49,006-49,030 while live alerts arrived; lab window 1,155 / 1,155); 0 duplicates after restart; live alert → card 13 s at a 15 s schedule |
 | Wazuh push | the real integration (`deploy/custom-netsec-board.py`) | 438 / 439 alerts accepted; alert → card 1.3 s |
 | Zabbix | Zabbix 7.0.32, API token + the real webhook media type | problem, recovery and recurrence in 3-6 s, both pull and push |
 | FortiGate logs | 510,899 real lines (Splunk BOTSv1, CC0, FortiOS 5.x) | 100% parsed; 28 days → 145 cards, 31 pushes; 0 false injection flags; 5,334 lines/s |

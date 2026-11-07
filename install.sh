@@ -167,7 +167,12 @@ else
       *) cp "$NETSEC_TARBALL" "$DIR/app.tgz" ;;
     esac
   elif [ "$FROM_CLONE" = 1 ] && [ "$VERSION" = main ]; then
-    (cd "$SRC" && tar --exclude=./node_modules --exclude=./data --exclude=./.git -czf "$DIR/app.tgz" .)
+    # only files git tracks: never local state (data/, lab/data with lab secrets, large downloads)
+    if git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; then
+      (cd "$SRC" && git ls-files -z | tar --null -T - -czf "$DIR/app.tgz" --transform 's#^#./#')
+    else
+      (cd "$SRC" && tar --exclude=./node_modules --exclude=./data --exclude=./lab/data --exclude=./lab/botsv1 --exclude=./.git -czf "$DIR/app.tgz" .)
+    fi
   else
     case "$VERSION" in main) ref="heads/main" ;; *) ref="tags/$VERSION" ;; esac
     fetch "https://github.com/$REPO/archive/refs/$ref.tar.gz" "$DIR/app.tgz"
